@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resolve-ai-bridge"
+version = "1.0.0"
+description = "A local MCP bridge for controlling DaVinci Resolve through its internal Python Console"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = ["mcp>=1.12,<2"]
+
+[tool.setuptools]
+packages = ["bridge"]
