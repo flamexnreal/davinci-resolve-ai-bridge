@@ -1,0 +1,356 @@
+"""Resolve AI Bridge Console worker.
+
+Three ways to start this file, all equivalent:
+
+1. Workspace > Scripts > Resolve AI Bridge > Start AI Bridge  (one click)
+2. Paste the one line from ~/.resolve-ai-bridge/console-command.txt into
+   Workspace > Console with the Py3 tab selected. It contains no personal
+   paths, so there is nothing to edit:
+
+       import os;exec(open(os.path.expanduser("~/.resolve-ai-bridge/ResolveConsole.py"),encoding="utf-8").read())
+
+3. Nothing at all, when the MCP server can attach to Resolve directly. Run
+   ``python3 tools/doctor.py`` to see which route your machine uses.
+
+The worker captures Resolve's injected API object, starts a daemon thread, and
+returns control to the Console immediately. It only depends on the standard
+library and on ``bridge/operations.py``, which the installer places beside it.
+"""
+
+import builtins
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import shlex
+import subprocess
+import sys
+import threading
+import time
+import traceback
+import uuid
+from pathlib import Path
+
+
+RUNTIME_KEY = "__resolve_ai_bridge_runtime__"
+HOME = Path(os.environ.get("RESOLVE_AI_BRIDGE_HOME", Path.home() / ".resolve-ai-bridge")).expanduser()
+INBOX = HOME / "inbox"
+OUTBOX = HOME / "outbox"
+LOGS = HOME / "logs"
+TOKEN_FILE = HOME / "token.txt"
+HEARTBEAT_FILE = HOME / "agent.json"
+
+
+def _import_operations():
+    """Load the shared operation implementations from the installed runtime."""
+    candidates = [HOME]
+    try:  # Running straight from a cloned repository also works.
+        candidates.append(Path(__file__).resolve().parents[1])
+    except NameError:
+        pass
+    for root in candidates:
+        if (root / "bridge" / "operations.py").exists() and str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+    try:
+        from bridge import operations
+    except ImportError as exc:
+        raise RuntimeError(
+            "bridge/operations.py was not found next to this file. Run install.py again from the "
+            "complete downloaded folder, then restart this worker. (%s)" % exc
+        )
+    return operations
+
+
+operations = _import_operations()
+AGENT_VERSION = operations.AGENT_VERSION
+PROTOCOL_VERSION = operations.PROTOCOL_VERSION
+
+
+def _ensure_dirs():
+    for path in (HOME, INBOX, OUTBOX, LOGS):
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def _atomic_json(path, data):
+    path = Path(path)
+    temp = path.with_name(".%s.%s.tmp" % (path.name, uuid.uuid4().hex))
+    with temp.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=True, indent=2)
+        handle.flush()
+        try:
+            os.fsync(handle.fileno())
+        except OSError:
+            pass
+    os.replace(str(temp), str(path))
+
+
+def _read_json(path):
+    last_error = None
+    for _ in range(4):
+        try:
+            with Path(path).open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, ValueError) as exc:
+            last_error = exc
+            time.sleep(0.03)
+    raise last_error
+
+
+def _load_token():
+    if TOKEN_FILE.exists():
+        value = TOKEN_FILE.read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    value = "rab_" + secrets.token_urlsafe(32)
+    TOKEN_FILE.write_text(value + "\n", encoding="utf-8")
+    try:
+        os.chmod(str(TOKEN_FILE), 0o600)
+    except OSError:
+        pass
+    return value
+
+
+def _injected(name, namespace=None):
+    if namespace and namespace.get(name) is not None:
+        return namespace[name]
+    value = globals().get(name)
+    if value is not None:
+        return value
+    return getattr(builtins, name, None)
+
+
+def _get_resolve(namespace=None):
+    candidate = _injected("resolve", namespace)
+    if candidate is not None and hasattr(candidate, "GetProjectManager"):
+        return candidate
+
+    for name in ("app", "fusion", "fu"):
+        host = _injected(name, namespace)
+        if host is None:
+            continue
+        try:
+            candidate = host.GetResolve()
+            if candidate is not None and hasattr(candidate, "GetProjectManager"):
+                return candidate
+        except Exception:
+            pass
+
+    bmd = _injected("bmd", namespace)
+    if bmd is not None:
+        try:
+            candidate = bmd.scriptapp("Resolve")
+            if candidate is not None and hasattr(candidate, "GetProjectManager"):
+                return candidate
+        except Exception:
+            pass
+
+    raise RuntimeError(
+        "Resolve's API object was not found. Start this from Workspace > Scripts > Resolve AI Bridge "
+        "> Start AI Bridge, or from Workspace > Console with the Py3 tab selected."
+    )
+
+
+class ResolveRuntime:
+    """The daemon worker plus its authenticated queue."""
+
+    def __init__(self, resolve):
+        _ensure_dirs()
+        self.resolve = resolve
+        self.token = _load_token()
+        self.token_id = hashlib.sha256(self.token.encode("utf-8")).hexdigest()[:12]
+        self.operations = operations.ResolveOperations(
+            lambda: self.resolve, token_id=self.token_id, transport="console"
+        )
+        self.stop_event = threading.Event()
+        self.thread = None
+        self.started_at = time.time()
+        self.last_heartbeat = 0.0
+        self.served = 0
+        self.log_path = LOGS / "agent.log"
+
+    def log(self, message):
+        try:
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            with self.log_path.open("a", encoding="utf-8") as handle:
+                handle.write("[%s] %s\n" % (stamp, message))
+        except Exception:
+            pass
+
+    def alive(self):
+        return self.thread is not None and self.thread.is_alive() and not self.stop_event.is_set()
+
+    def start(self):
+        if self.alive():
+            print("Resolve AI Bridge is already running in this Resolve session.")
+            self.summary()
+            return
+        self.stop_event.clear()
+        self.thread = threading.Thread(target=self._loop, name="ResolveAIBridge", daemon=True)
+        self.thread.start()
+        self.summary()
+
+    def stop(self):
+        self.stop_event.set()
+        self.log("Stop requested from inside Resolve")
+        print("Resolve AI Bridge is stopping. The heartbeat expires within a few seconds.")
+
+    def summary(self):
+        """Short, friendly confirmation. The installer already wrote every config file."""
+        status = {}
+        try:
+            status = self.operations.dispatch("status", {})
+        except Exception:
+            pass
+        print("\n" + "=" * 68)
+        print("RESOLVE AI BRIDGE READY")
+        print("Version %s  |  worker requests served: %d" % (AGENT_VERSION, self.served))
+        print("Project:  %s" % (status.get("project") or "none open"))
+        print("Timeline: %s" % (status.get("timeline") or "none open"))
+        print("Resolve:  %s %s" % (status.get("product") or "", status.get("version") or ""))
+        print("")
+        print("Your AI client needs no token typed by hand. The filled configuration is at:")
+        print("  %s" % (HOME / "mcp-config.json"))
+        print("Provider one-liners:")
+        print("  Claude Code: %s" % (HOME / "claude-command.txt"))
+        print("  Codex:       %s" % (HOME / "codex-command.txt"))
+        print("")
+        print("Stop this worker with: %s.stop()" % RUNTIME_KEY)
+        print("=" * 68 + "\n")
+
+    def print_details(self):
+        """Everything a provider could need, on request rather than on every start."""
+        venv_python = HOME / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        server = HOME / "bridge" / "server.py"
+        entry = {
+            "command": str(venv_python),
+            "args": [str(server)],
+            "env": {"RESOLVE_AI_BRIDGE_TOKEN": self.token},
+        }
+        print("\nGENERIC MCP SERVER ENTRY:")
+        print(json.dumps(entry, indent=2))
+        print("\nFULL MCP CONFIG (Antigravity, Cursor, and other JSON clients):")
+        print(json.dumps({"mcpServers": {"resolve-ai-bridge": entry}}, indent=2))
+        claude_entry_file = HOME / "claude-server-entry.json"
+        if os.name == "nt":
+            claude_line = (
+                '$entry = Get-Content -Raw "%s"; '
+                "claude mcp add-json resolve-ai-bridge $entry --scope user"
+            ) % claude_entry_file
+            launch = subprocess.list2cmdline([str(venv_python), str(server)])
+        else:
+            claude_line = 'claude mcp add-json resolve-ai-bridge "$(cat %s)" --scope user' % shlex.quote(
+                str(claude_entry_file)
+            )
+            launch = "%s %s" % (shlex.quote(str(venv_python)), shlex.quote(str(server)))
+        print("\nCLAUDE CODE COMMAND:")
+        print(claude_line)
+        print("\nCODEX CLI COMMAND:")
+        print(
+            "codex mcp add resolve-ai-bridge --env RESOLVE_AI_BRIDGE_TOKEN=%s -- %s"
+            % (self.token, launch)
+        )
+        print("\nToken: %s  (keep private)" % self.token)
+        print("")
+
+    # Kept as an alias so older instructions and screenshots still work.
+    banner = summary
+
+    def _heartbeat(self):
+        payload = self.operations.heartbeat_payload({
+            "started_at": self.started_at,
+            "thread_alive": True,
+            "served": self.served,
+            "agent_version": AGENT_VERSION,
+        })
+        _atomic_json(HEARTBEAT_FILE, payload)
+        self.last_heartbeat = time.time()
+
+    def _process(self, path):
+        request_id = path.stem
+        started = time.time()
+        response = {"id": request_id, "ok": False}
+        try:
+            request = _read_json(path)
+            if str(request.get("id", "")) != request_id:
+                raise RuntimeError("Request id does not match its queue filename.")
+            if not hmac.compare_digest(str(request.get("token", "")), self.token):
+                raise RuntimeError(
+                    "Bridge token mismatch. Re-run install.py and update your AI client's MCP entry."
+                )
+            response["result"] = self.operations.dispatch(
+                str(request.get("op", "")), request.get("params") or {}
+            )
+            response["ok"] = True
+            self.served += 1
+        except Exception as exc:
+            response["error"] = str(exc)
+            response["traceback"] = traceback.format_exc(limit=8)
+            self.log("Request %s failed: %s" % (request_id, exc))
+        response["took_ms"] = int((time.time() - started) * 1000)
+        _atomic_json(OUTBOX / (request_id + ".json"), response)
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+    def _loop(self):
+        self.log("Worker %s started with token id %s" % (AGENT_VERSION, self.token_id))
+        try:
+            self._heartbeat()
+            while not self.stop_event.wait(0.08):
+                now = time.time()
+                if now - self.last_heartbeat >= 2.0:
+                    try:
+                        self._heartbeat()
+                    except Exception as exc:
+                        self.log("Heartbeat failed: %s" % exc)
+                for path in sorted(INBOX.glob("*.json"))[:8]:
+                    try:
+                        self._process(path)
+                    except Exception as exc:
+                        self.log("Could not process %s: %s" % (path.name, exc))
+        finally:
+            try:
+                HEARTBEAT_FILE.unlink()
+            except OSError:
+                pass
+            self.log("Worker stopped")
+
+
+def start_bridge(namespace=None):
+    """Start or reuse the worker. ``namespace`` carries Resolve's injected globals."""
+    _ensure_dirs()
+    existing = getattr(builtins, RUNTIME_KEY, None)
+    if existing is not None and getattr(existing, "alive", lambda: False)():
+        existing.resolve = _get_resolve(namespace)
+        print("Resolve AI Bridge is already running in this Resolve session.")
+        existing.summary()
+        return existing
+    runtime = ResolveRuntime(_get_resolve(namespace))
+    setattr(builtins, RUNTIME_KEY, runtime)
+    globals()[RUNTIME_KEY] = runtime
+    runtime.start()
+    return runtime
+
+
+def stop_bridge():
+    existing = getattr(builtins, RUNTIME_KEY, None)
+    if existing is None:
+        print("Resolve AI Bridge is not running in this Resolve session.")
+        return False
+    existing.stop()
+    return True
+
+
+# Backwards-compatible private name used by earlier releases.
+_start_bridge = start_bridge
+
+
+if os.environ.get("RESOLVE_AI_BRIDGE_NO_AUTOSTART", "").strip() != "1":
+    try:
+        start_bridge(globals())
+    except Exception as error:
+        print("\nRESOLVE AI BRIDGE DID NOT START")
+        print(str(error))
+        print("Log: %s\n" % (LOGS / "agent.log"))

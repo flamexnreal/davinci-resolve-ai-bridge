@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Node
+node_modules/
+dist-web/
+.vite/
+
+# Local runtime, never commit: it holds your private token
+.resolve-ai-bridge/
+
+# Editors
+.idea/
+.vscode/
+*.swp
