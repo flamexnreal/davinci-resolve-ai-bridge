@@ -1,5 +1,63 @@
 # Release Notes
 
+## v1.2.0 — Reliable launcher, and real timeline editing
+
+This release makes the one-click launcher dependable and gives your AI three things it could not do before: **scale** the clips already on your timeline, **animate** that scale over time, and **cut** clips in two. It also tidies the Workspace > Scripts menu so only the bridge's own entries remain.
+
+### The launcher works every time now
+
+Clicking **Workspace > Scripts > Resolve AI Bridge > Start AI Bridge** sometimes did nothing, and the only fix was to repaste the Console line. Cause: the menu launcher relied on Resolve injecting its `resolve` object into the script's globals, which Resolve does not always do for a Scripts-menu run.
+
+The worker no longer depends on that injection. When the object is not handed to it, it imports Resolve's own scripting library from disk (`fusionscript` / `DaVinciResolveScript`, with a direct load of `fusionscript.so`/`.dll` as a final step) and asks Resolve for the app itself — exactly what a Console paste does. The launcher also collects every host object it can see and forwards it to the worker, and on failure it prints the reason, the log path, and the Console fallback instead of dying silently. **The menu click now behaves the same as a Console paste.**
+
+### Scale clips you already placed
+
+`set_clip_transform` was built for positioning stills; it now drives the clips you cut in yourself:
+
+- Independent `zoom_x` / `zoom_y`, plus `scaling` (crop, fit, fill, stretch), `resize_filter`, `retime_process`, and `motion_estimation` — the full documented sizing surface.
+- Pass `item_id="playhead"` to act on the clip under the playhead, so the AI can work on "the clip I am looking at" without first listing every id.
+
+### Animate a push-in or pull-out
+
+`animate_zoom` makes a scale that actually moves over time. Resolve's Edit-page sizing cannot be keyframed through scripting, so this builds a **Fusion composition** on the clip with a keyframed Transform node from `start_zoom` to `end_zoom` across a frame range you choose.
+
+It is honest about the result: the reply includes `keyframes_created` and a step-by-step `trace`. On a build that refuses scripted keyframes it applies a static zoom and says so, rather than claiming an animation that is not there.
+
+### Cut clips on the timeline
+
+`split_clip` razors a clip in two at a frame, a timecode, or the playhead. Resolve's scripting API has **no razor, blade, split, or trim call**, so the cut is synthesised: the clip's source range and transform are read, the clip is removed, and two adjacent pieces are re-appended at the original positions with the transform re-applied. If the rebuild cannot place both halves, the original is restored so a failed cut is never destructive.
+
+Honest limitation, stated in every reply: color-page grades and Fusion compositions on the original are **not** copied onto the halves, because the API cannot copy them.
+
+Example prompt:
+
+> Take the clip under the playhead. Push it in from 100 to 130 percent over its first two seconds, then split it where the playhead is. Show me the timeline before and after each step.
+
+### A tidier Scripts menu
+
+The installer now moves superseded, hand-made scripts (old `RFAIB_*` probes, duplicate launchers with hard-coded paths, one-off overlay scripts) out of Resolve's `Utility` folder into `~/.resolve-ai-bridge/removed-scripts-backup/`. They are **moved, not deleted**, so nothing is lost and you can bin the backup yourself. Only the three **Resolve AI Bridge** entries remain in the menu.
+
+### Also new
+
+- Clearer `append_media` error that spells out `media_ids` vs `paths` and points stills at `add_image`.
+- `get_clip_transform` and `split_clip` accept the same `item_id="playhead"` shorthand.
+- Editing guide, MCP instructions, `00_START_HERE.html`, and the web guide all document the new tools and stay in agreement.
+
+### Compatibility
+
+- Built against **free DaVinci Resolve** (validated on 21.0.3.7). No tool here uses a Studio-only or paid AI call.
+- New operations were written against Blackmagic's own scripting README. **They were not run against a live Resolve for this release** (Resolve was not open during the build), which is why cuts and animations are synthesised from documented primitives and every reply reports what Resolve actually returned. Verify on your build with `timeline_overview` and `python3 tools/doctor.py`.
+
+### Upgrading from 1.1.0
+
+1. Download this release and run `python3 install.py` (`py install.py` on Windows). Your token is preserved.
+2. Restart DaVinci Resolve once so it re-scans the Scripts menu and the tidy-up takes effect.
+3. Run `python3 tools/doctor.py` with a project open.
+
+No tool names changed. Three tools were added (`split_clip`, `animate_zoom`, and the extended `set_clip_transform`).
+
+---
+
 ## v1.1.0 — Zero-paste setup, images on the timeline
 
 Version 1.0 worked, but two things tripped people up: you had to hand-edit `YOUR_NAME` into the Console line, and you had to repaste that line every single time you opened DaVinci Resolve. Both are gone.

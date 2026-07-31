@@ -41,6 +41,14 @@ Never claim an edit succeeded while the bridge is offline.
 
 `insert_title` is best effort. Available names depend on the Resolve version and installed templates. Check `text_set` in the reply. When it is false, say the text must be typed in the Inspector, or offer to build the title in Remotion instead.
 
+## Editing Clips On The Timeline
+
+- Scale, reframe, or blend an existing clip with `set_clip_transform`. It takes `zoom`, `zoom_x`/`zoom_y`, `pan`/`tilt` (pixels), the percent variants, `rotation`, crop, `opacity`, `composite_mode`, and modes such as `scaling`, `resize_filter`, `retime_process`, and `motion_estimation`. This is a static transform.
+- For a scale that moves over time, use `animate_zoom` with `start_zoom`, `end_zoom`, and a frame range inside the clip. It builds a Fusion composition. Read `keyframes_created`: if false, only a static zoom was applied and you must say so rather than claim an animation.
+- Cut a clip in two with `split_clip`, choosing the point by `frame`, `timecode`, or the playhead. It rebuilds the clip as two pieces. It does NOT copy color grades or Fusion comps onto the halves — tell the user when that matters.
+- All three accept `item_id="playhead"` to act on the clip under the playhead, so you need not look up the id first. Still confirm with `timeline_overview` afterwards.
+- `split_clip` is only near-reversible: it deletes and re-adds the clip. Confirm the frame is right before cutting, and inspect the result.
+
 ## Editing Quality
 
 - Treat pacing, story, and audio clarity as editorial decisions, not random effects.

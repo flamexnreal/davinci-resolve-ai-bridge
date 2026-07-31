@@ -120,6 +120,86 @@ def _injected(name, namespace=None):
     return getattr(builtins, name, None)
 
 
+def _scriptapp_from_disk():
+    """Obtain Resolve's API object without relying on injected globals.
+
+    A Console paste always inherits ``resolve`` from the Console's namespace, but
+    a Workspace > Scripts invocation does not always inject it into the script's
+    own globals. Resolve's own interpreter can still import its scripting module,
+    so this reproduces what Blackmagic's ``DaVinciResolveScript`` does: import the
+    native module and ask it for the app. This is the difference between the menu
+    launcher working and the user having to paste into the Console.
+    """
+    attempts = []
+
+    # Resolve's interpreter usually has both of these importable already.
+    for module_name in ("fusionscript", "DaVinciResolveScript"):
+        try:
+            module = __import__(module_name)
+        except Exception as exc:
+            attempts.append("import %s (%s)" % (module_name, exc))
+            continue
+        for getter in ("scriptapp", "GetResolve"):
+            call = getattr(module, getter, None)
+            if call is None:
+                continue
+            try:
+                candidate = call("Resolve") if getter == "scriptapp" else call()
+            except Exception as exc:
+                attempts.append("%s.%s (%s)" % (module_name, getter, exc))
+                continue
+            if candidate is not None and hasattr(candidate, "GetProjectManager"):
+                return candidate, attempts
+
+    # Fall back to loading the native library straight off disk.
+    import importlib.machinery
+    import importlib.util
+
+    for path in _library_candidates():
+        if not os.path.isfile(path):
+            attempts.append("%s (not found)" % path)
+            continue
+        try:
+            loader = importlib.machinery.ExtensionFileLoader("fusionscript", path)
+            spec = importlib.util.spec_from_loader("fusionscript", loader)
+            module = importlib.util.module_from_spec(spec)
+            loader.exec_module(module)
+            candidate = module.scriptapp("Resolve")
+        except Exception as exc:
+            attempts.append("%s (%s)" % (path, exc))
+            continue
+        if candidate is not None and hasattr(candidate, "GetProjectManager"):
+            return candidate, attempts
+        attempts.append("%s (loaded, but Resolve did not answer)" % path)
+    return None, attempts
+
+
+def _library_candidates():
+    """Absolute paths to Resolve's scripting library, most specific first."""
+    candidates = []
+    override = os.environ.get("RESOLVE_SCRIPT_LIB", "").strip()
+    if override:
+        candidates.append(override)
+    if sys.platform.startswith("darwin"):
+        candidates.append(
+            "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/"
+            "Libraries/Fusion/fusionscript.so"
+        )
+    elif os.name == "nt":
+        program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        candidates.append(
+            os.path.join(program_files, "Blackmagic Design", "DaVinci Resolve", "fusionscript.dll")
+        )
+    else:
+        candidates.append("/opt/resolve/libs/Fusion/fusionscript.so")
+        candidates.append("/home/resolve/libs/Fusion/fusionscript.so")
+    unique = []
+    for candidate in candidates:
+        if candidate and candidate not in unique:
+            unique.append(candidate)
+    return unique
+
+
 def _get_resolve(namespace=None):
     candidate = _injected("resolve", namespace)
     if candidate is not None and hasattr(candidate, "GetProjectManager"):
@@ -145,9 +225,16 @@ def _get_resolve(namespace=None):
         except Exception:
             pass
 
+    candidate, attempts = _scriptapp_from_disk()
+    if candidate is not None:
+        return candidate
+
     raise RuntimeError(
-        "Resolve's API object was not found. Start this from Workspace > Scripts > Resolve AI Bridge "
-        "> Start AI Bridge, or from Workspace > Console with the Py3 tab selected."
+        "Resolve's API object was not found. Open a project first, and check "
+        "Preferences > System > General > External scripting using is not set to None. "
+        "Then retry Workspace > Scripts > Resolve AI Bridge > Start AI Bridge, or paste the one "
+        "line from ~/.resolve-ai-bridge/console-command.txt into Workspace > Console (Py3 tab). "
+        "Attach attempts: %s" % ("; ".join(attempts) or "none")
     )
 
 

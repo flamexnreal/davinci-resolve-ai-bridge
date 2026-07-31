@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 
-AGENT_VERSION = "1.1.0"
+AGENT_VERSION = "1.2.0"
 PROTOCOL_VERSION = 2
 
 IMAGE_SUFFIXES = {
@@ -67,11 +67,48 @@ TRANSFORM_BOOLS = {
     "crop_retain": "CropRetain",
 }
 
+# Enum transform keys exposed by set_clip_transform. Each maps friendly names to
+# the integer constants documented in Resolve's scripting README (section
+# "Looking up Timeline item properties"). Names are matched lowercased with
+# spaces turned into underscores.
+DYNAMIC_ZOOM_EASE = {
+    "linear": 0, "ease_in": 1, "in": 1, "ease_out": 2, "out": 2,
+    "ease_in_and_out": 3, "ease_in_out": 3, "in_and_out": 3, "in_out": 3,
+}
+SCALING_MODES = {
+    "use_project": 0, "project": 0, "crop": 1, "fit": 2, "fill": 3, "stretch": 4,
+}
+RESIZE_FILTERS = {
+    "use_project": 0, "project": 0, "sharper": 1, "smoother": 2, "bicubic": 3,
+    "bilinear": 4, "bessel": 5, "box": 6, "catmull_rom": 7, "cubic": 8,
+    "gaussian": 9, "lanczos": 10, "mitchell": 11, "nearest_neighbor": 12,
+    "nearest": 12, "quadratic": 13, "sinc": 14, "linear": 15,
+}
+RETIME_PROCESS = {
+    "use_project": 0, "project": 0, "nearest": 1, "frame_blend": 2,
+    "optical_flow": 3,
+}
+MOTION_ESTIMATION = {
+    "use_project": 0, "project": 0, "standard_faster": 1, "standard_better": 2,
+    "enhanced_faster": 3, "enhanced_better": 4, "speed_warp_better": 5,
+    "speed_warp_faster": 6,
+}
+
+# param name -> (Resolve property key, name->int table)
+TRANSFORM_ENUMS = {
+    "dynamic_zoom_ease": ("DynamicZoomEase", DYNAMIC_ZOOM_EASE),
+    "scaling": ("Scaling", SCALING_MODES),
+    "resize_filter": ("ResizeFilter", RESIZE_FILTERS),
+    "retime_process": ("RetimeProcess", RETIME_PROCESS),
+    "motion_estimation": ("MotionEstimation", MOTION_ESTIMATION),
+}
+
 READABLE_TRANSFORM_KEYS = (
     "Pan", "Tilt", "ZoomX", "ZoomY", "ZoomGang", "RotationAngle",
     "AnchorPointX", "AnchorPointY", "Pitch", "Yaw", "FlipX", "FlipY",
     "CropLeft", "CropRight", "CropTop", "CropBottom", "CropSoftness",
-    "CropRetain", "CompositeMode", "Opacity", "Distortion",
+    "CropRetain", "DynamicZoomEase", "CompositeMode", "Opacity", "Distortion",
+    "RetimeProcess", "MotionEstimation", "Scaling", "ResizeFilter",
 )
 
 PAGES = ("media", "cut", "edit", "fusion", "color", "fairlight", "deliver")
@@ -103,6 +140,29 @@ def plain(value):
 
 def _absolute(value):
     return str(Path(str(value)).expanduser().resolve())
+
+
+# Reverse of TRANSFORM_FLOATS/BOOLS: Resolve property key -> set_clip_transform
+# param name, used to re-apply a read-back transform onto rebuilt clip halves.
+# CompositeMode and the enum modes read back as their integer constant, which
+# _apply_transform accepts directly, so they are mapped through too.
+_PROP_TO_PARAM = {"CompositeMode": "composite_mode"}
+for _pname, _pkey in list(TRANSFORM_FLOATS.items()) + list(TRANSFORM_BOOLS.items()):
+    _PROP_TO_PARAM[_pkey] = _pname
+for _pname, (_pkey, _table) in TRANSFORM_ENUMS.items():
+    _PROP_TO_PARAM[_pkey] = _pname
+
+
+def transform_params_from_props(props):
+    """Turn a {"Pan": .., "ZoomX": ..} read-back into set_clip_transform params."""
+    params = {}
+    if not isinstance(props, dict):
+        return params
+    for key, value in props.items():
+        name = _PROP_TO_PARAM.get(key)
+        if name is not None:
+            params[name] = value
+    return params
 
 
 class ResolveOperations:
@@ -251,6 +311,55 @@ class ResolveOperations:
             )
         return found
 
+    def _playhead_frame(self, timeline):
+        """Absolute timeline frame under the playhead (same space as GetStart)."""
+        return int(call(timeline, "GetStartFrame", 0) or 0) + self._current_marker_frame(timeline)
+
+    def _resolve_one_item(self, item_id, track_hint=None):
+        """Return a single (item, info) pair.
+
+        ``item_id`` may be an explicit id such as V1.2, a unique id, or a clip
+        name. It may also be empty or one of "playhead"/"current"/"under_playhead"
+        to select the clip sitting under the playhead, so an AI can act on "the
+        clip I am looking at" without first reading every id.
+        """
+        token = str(item_id or "").strip().lower()
+        if token and token not in ("playhead", "current", "under_playhead", "at_playhead"):
+            return self._find_timeline_items([item_id])[0]
+
+        timeline = self._timeline()
+        frame = self._playhead_frame(timeline)
+        want_track = int(track_hint) if track_hint else None
+        best = None
+        for item, info in self._timeline_items():
+            if info.get("track_type") != "video":
+                continue
+            start = info.get("start")
+            end = info.get("end")
+            if start is None or end is None:
+                continue
+            if int(start) <= frame <= int(end):
+                if want_track is not None and info.get("track_index") != want_track:
+                    continue
+                # Prefer the highest video track (topmost layer) at the playhead.
+                if best is None or info.get("track_index", 0) > best[1].get("track_index", 0):
+                    best = (item, info)
+        if best is None:
+            raise OperationError(
+                "No video clip sits under the playhead (timeline frame %d). Move the playhead "
+                "onto a clip, or pass an explicit item_id from timeline_overview." % frame
+            )
+        return best
+
+    def _item_id_after_rebuild(self, timeline, created_item):
+        """Best-effort id (like V1.2) for a freshly appended timeline item."""
+        unique = call(created_item, "GetUniqueId", None)
+        if unique is not None:
+            for _, info in self._timeline_items():
+                if str(info.get("unique_id")) == str(unique):
+                    return info.get("id")
+        return unique
+
     def _walk_media(self, folder, prefix="", limit=2000):
         output = []
         folder_name = call(folder, "GetName", "Media Pool")
@@ -350,6 +459,21 @@ class ResolveOperations:
                 requests.append(("CompositeMode", resolved))
             else:
                 requests.append(("CompositeMode", int(mode)))
+
+        for name, (key, table) in TRANSFORM_ENUMS.items():
+            value = params.get(name)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                resolved = table.get(value.strip().lower().replace(" ", "_"))
+                if resolved is None:
+                    raise OperationError(
+                        "Unknown %s '%s'. Valid names: %s"
+                        % (name, value, ", ".join(sorted(table)))
+                    )
+                requests.append((key, resolved))
+            else:
+                requests.append((key, int(value)))
 
         for key, value in requests:
             if call(item, "SetProperty", False, key, value):
@@ -519,7 +643,9 @@ class ResolveOperations:
                 raise OperationError("Resolve did not import any of the requested media files.")
         if items is None and not media_ids:
             raise OperationError(
-                "Provide media_ids from list_media or absolute paths to import and append."
+                "Nothing to append. Pass either media_ids (unique ids from list_media, for clips "
+                "already in the Media Pool) or paths (absolute file paths to import and append). "
+                "For a still image, use add_image instead so its duration is set."
             )
         if items is None:
             items = self._find_media_items(media_ids)
@@ -686,13 +812,14 @@ class ResolveOperations:
         return result
 
     def _op_set_clip_transform(self, params):
-        item, info = self._find_timeline_items([params.get("item_id")])[0]
+        item, info = self._resolve_one_item(params.get("item_id"), params.get("track_index"))
         applied, rejected = self._apply_transform(item, params)
         if not applied and not rejected:
             raise OperationError(
                 "No transform values were supplied. Pass at least one of pan, tilt, pan_percent, "
                 "tilt_percent, zoom, zoom_x, zoom_y, rotation, opacity, composite_mode, flip_x, "
-                "flip_y, or a crop value."
+                "flip_y, a crop value, or a mode such as scaling, resize_filter, dynamic_zoom_ease, "
+                "retime_process, or motion_estimation."
             )
         result = {"item": info["id"], "applied": applied, "current": self._read_transform(item)}
         if rejected:
@@ -704,13 +831,255 @@ class ResolveOperations:
         return result
 
     def _op_get_clip_transform(self, params):
-        item, info = self._find_timeline_items([params.get("item_id")])[0]
+        item, info = self._resolve_one_item(params.get("item_id"), params.get("track_index"))
         width, height = self._project_resolution()
         return {
             "item": info["id"],
             "timeline_resolution": {"width": width, "height": height},
             "transform": self._read_transform(item),
         }
+
+    def _op_split_clip(self, params):
+        """Cut one timeline clip into two at a frame, synthesised from documented API.
+
+        Resolve exposes no razor/split/trim call, so a cut is rebuilt: read the
+        clip's source range and transform, delete it, then re-append the two
+        halves at their original positions and re-apply the transform. Color
+        grades and Fusion compositions on the clip are NOT carried onto the
+        halves, because the API cannot copy them; that is reported in the result.
+        """
+        timeline = self._timeline()
+        item, info = self._resolve_one_item(params.get("item_id"), params.get("track_index"))
+
+        track_type = info.get("track_type")
+        if track_type not in ("video", "audio"):
+            raise OperationError(
+                "split_clip works on video or audio clips. '%s' is a %s clip."
+                % (info["id"], track_type)
+            )
+
+        clip_start = info.get("start")
+        clip_end = info.get("end")
+        duration = call(item, "GetDuration", None)
+        if clip_start is None or clip_end is None or not duration:
+            raise OperationError(
+                "Resolve did not report this clip's frame range, so it cannot be split safely."
+            )
+        clip_start = int(clip_start)
+        clip_end = int(clip_end)
+        total_len = int(duration)
+
+        # Where to cut, as an absolute timeline frame (the first frame of the
+        # right-hand piece). Accept an explicit frame, a timecode, or the playhead.
+        frame = params.get("frame")
+        if frame is None and params.get("timecode"):
+            fps = self._project_rate()
+            frame = int(call(timeline, "GetStartFrame", 0) or 0) + max(
+                0,
+                self._tc_frames(params["timecode"], fps)
+                - self._tc_frames(call(timeline, "GetStartTimecode", "00:00:00:00"), fps),
+            )
+        if frame is None:
+            frame = self._playhead_frame(timeline)
+        frame = int(frame)
+
+        if not (clip_start < frame < clip_end):
+            raise OperationError(
+                "The cut frame %d is not inside clip %s (timeline frames %d..%d). Move the "
+                "playhead onto the clip, or pass a frame strictly between its start and end."
+                % (frame, info["id"], clip_start, clip_end - 1)
+            )
+
+        media_item = call(item, "GetMediaPoolItem", None)
+        if media_item is None:
+            raise OperationError(
+                "Clip %s has no media pool source (it may be a generator, title, or compound "
+                "clip). Those cannot be split by this tool yet." % info["id"]
+            )
+        source_start = call(item, "GetSourceStartFrame", None)
+        if source_start is None:
+            raise OperationError("Resolve did not report the clip's source start frame.")
+        source_start = int(source_start)
+
+        left_len = frame - clip_start
+        right_len = total_len - left_len
+        media_type = 1 if track_type == "video" else 2
+
+        left_info = {
+            "mediaPoolItem": media_item,
+            "startFrame": source_start,
+            "endFrame": source_start + left_len - 1,
+            "recordFrame": clip_start,
+            "trackIndex": int(info["track_index"]),
+            "mediaType": media_type,
+        }
+        right_info = {
+            "mediaPoolItem": media_item,
+            "startFrame": source_start + left_len,
+            "endFrame": source_start + total_len - 1,
+            "recordFrame": frame,
+            "trackIndex": int(info["track_index"]),
+            "mediaType": media_type,
+        }
+
+        # Preserve the Edit-page transform so the two halves look like the original.
+        transform = self._read_transform(item)
+
+        pool = self._media_pool()
+        if not timeline.DeleteClips([item], False):
+            raise OperationError("Resolve refused to remove the original clip, so nothing was cut.")
+
+        created = pool.AppendToTimeline([left_info, right_info]) or []
+        if len(created) < 2:
+            # Try to put the original back so a failed cut is not destructive.
+            recovery = {
+                "mediaPoolItem": media_item,
+                "startFrame": source_start,
+                "endFrame": source_start + total_len - 1,
+                "recordFrame": clip_start,
+                "trackIndex": int(info["track_index"]),
+                "mediaType": media_type,
+            }
+            pool.AppendToTimeline([recovery])
+            raise OperationError(
+                "Resolve rebuilt %d of 2 halves, so the cut was rolled back to the original clip. "
+                "This can happen if the neighbouring space is occupied." % len(created)
+            )
+
+        halves = []
+        for piece, when in zip(created, ("left", "right")):
+            self._apply_transform(piece, transform_params_from_props(transform))
+            halves.append({
+                "side": when,
+                "id": self._item_id_after_rebuild(timeline, piece),
+                "start": call(piece, "GetStart", None),
+                "end": call(piece, "GetEnd", None),
+                "duration": call(piece, "GetDuration", None),
+            })
+
+        return {
+            "original": info["id"],
+            "cut_frame": frame,
+            "halves": halves,
+            "transform_preserved": bool(transform),
+            "note": (
+                "Cut done by rebuilding the clip as two pieces. Position, scale, rotation, crop and "
+                "opacity were re-applied. Color-page grades and Fusion compositions on the original "
+                "are not copied onto the halves; re-grade if needed."
+            ),
+        }
+
+    def _op_animate_zoom(self, params):
+        """Animate a clip's scale over time using a Fusion composition.
+
+        The Edit page's own Pan/Tilt/Zoom cannot be keyframed through scripting,
+        so a real animation is built in Fusion: a Transform node between the
+        clip's MediaIn and MediaOut, with its Size input keyframed from
+        ``start_zoom`` to ``end_zoom``. Every step is reported, and if keyframing
+        is not available on this build the tool falls back to a static zoom and
+        says so, rather than pretending an animation was created.
+        """
+        item, info = self._resolve_one_item(params.get("item_id"), params.get("track_index"))
+        start_zoom = float(params.get("start_zoom", 1.0))
+        end_zoom = float(params.get("end_zoom", 1.5))
+        if start_zoom <= 0 or end_zoom <= 0:
+            raise OperationError("start_zoom and end_zoom must be greater than 0 (1.0 is original size).")
+
+        duration = int(call(item, "GetDuration", 0) or 0)
+        start_frame = max(0, int(params.get("start_frame", 0) or 0))
+        end_frame = params.get("end_frame")
+        end_frame = max(start_frame + 1, duration - 1 if duration else start_frame + 1) \
+            if end_frame is None else int(end_frame)
+
+        trace = []
+
+        comp = call(item, "GetFusionCompByIndex", None, 1)
+        if comp is None:
+            comp = call(item, "AddFusionComp", None)
+            trace.append("added a new Fusion composition" if comp is not None else "AddFusionComp returned nothing")
+        else:
+            trace.append("reused the clip's existing Fusion composition")
+        if comp is None:
+            raise OperationError(
+                "Resolve did not return a Fusion composition for %s, so an animated zoom could not "
+                "be built. This clip type may not accept Fusion effects." % info["id"]
+            )
+
+        media_in = call(comp, "FindTool", None, "MediaIn1")
+        media_out = call(comp, "FindTool", None, "MediaOut1")
+
+        transform = call(comp, "FindTool", None, "AIBridgeZoom")
+        if transform is None:
+            transform = call(comp, "AddTool", None, "Transform", -32768, -32768)
+            if transform is not None:
+                try:
+                    transform.SetAttrs({"TOOLS_Name": "AIBridgeZoom"})
+                except Exception:
+                    pass
+            trace.append("added a Transform node" if transform is not None else "AddTool(Transform) failed")
+        else:
+            trace.append("reused the AIBridgeZoom Transform node")
+        if transform is None:
+            raise OperationError(
+                "Resolve created a Fusion composition but would not add a Transform node. "
+                "Animated zoom needs Fusion tool scripting, which this build did not expose. "
+                "Trace: %s" % "; ".join(trace)
+            )
+
+        # Wire MediaIn -> Transform -> MediaOut when the endpoints are visible.
+        try:
+            if media_in is not None:
+                transform.ConnectInput("Input", media_in)
+                trace.append("connected MediaIn into the Transform")
+            if media_out is not None:
+                media_out.ConnectInput("Input", transform)
+                trace.append("connected the Transform into MediaOut")
+        except Exception as exc:
+            trace.append("wiring the nodes raised %s (Fusion may have auto-connected)" % exc)
+
+        keyframes_created = False
+        try:
+            spline = call(comp, "BezierSpline", None)
+            if spline is not None:
+                transform.Size = spline
+                spline[start_frame] = start_zoom
+                spline[end_frame] = end_zoom
+                keyframes_created = True
+                trace.append(
+                    "keyframed Size %.3f @f%d -> %.3f @f%d" % (start_zoom, start_frame, end_zoom, end_frame)
+                )
+        except Exception as exc:
+            trace.append("keyframing raised %s" % exc)
+
+        if not keyframes_created:
+            try:
+                transform.Size = end_zoom
+                trace.append("set a static Size of %.3f as a fallback" % end_zoom)
+            except Exception as exc:
+                trace.append("static fallback raised %s" % exc)
+
+        result = {
+            "item": info["id"],
+            "keyframes_created": keyframes_created,
+            "start_zoom": start_zoom,
+            "end_zoom": end_zoom,
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+            "trace": trace,
+        }
+        if not keyframes_created:
+            result["note"] = (
+                "A Fusion Transform was created but its Size could not be keyframed through scripting "
+                "on this build. A static zoom was applied instead. Open the clip on the Fusion page to "
+                "animate it, or use set_clip_transform for a static scale."
+            )
+        else:
+            result["note"] = (
+                "Animation lives in a Fusion composition on the clip and overrides the Edit page "
+                "sizing. Open the Fusion page on this clip to fine-tune the curve. Not verified "
+                "against a live Resolve in this build; confirm the motion plays back as expected."
+            )
+        return result
 
     def _op_add_track(self, params):
         timeline = self._timeline()
@@ -959,6 +1328,8 @@ class ResolveOperations:
             "insert_title": self._op_insert_title,
             "set_clip_transform": self._op_set_clip_transform,
             "get_clip_transform": self._op_get_clip_transform,
+            "split_clip": self._op_split_clip,
+            "animate_zoom": self._op_animate_zoom,
             "add_track": self._op_add_track,
             "set_track_name": self._op_set_track_name,
             "create_timeline": self._op_create_timeline,

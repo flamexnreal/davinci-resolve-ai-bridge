@@ -19,6 +19,10 @@ const imagePrompt = `Put /Users/me/Desktop/logo.png on video track 2 for 4 secon
 at the playhead, scaled to 40 percent and tucked into the
 bottom right corner. Then show me the timeline to confirm it.`;
 
+const editingPrompt = `Take the clip under the playhead. Push it in from 100 to 130
+percent over its first two seconds, then split it where the
+playhead is. Show me the timeline before and after each step.`;
+
 const remotionCommands = `# Install the official Remotion skill for your coding agents
 npx -y skills@latest add remotion-dev/skills -g -y
 
@@ -203,12 +207,13 @@ export default function App() {
           <div className="mx-auto flex max-w-[1440px] items-center justify-between px-6 py-5 sm:px-10 lg:px-16">
             <a href="#top" className="flex items-center gap-3 font-semibold tracking-[-0.02em]">
               <span className="grid h-8 w-8 place-items-center border border-white/60 bg-white/10 backdrop-blur-sm"><Icon name="nodes" className="h-4 w-4" /></span>
-              RAB / 1.1
+              RAB / 1.2
             </a>
             <nav className="hidden items-center gap-7 text-sm text-white/80 sm:flex" aria-label="Main navigation">
               <a className="transition hover:text-white" href="#setup">Setup</a>
               <a className="transition hover:text-white" href="#connect">Connect</a>
               <a className="transition hover:text-white" href="#images">Images</a>
+              <a className="transition hover:text-white" href="#editing">Editing</a>
               <a className="transition hover:text-white" href="#remotion">Remotion</a>
               <a className="transition hover:text-white" href="#help">Help</a>
             </nav>
@@ -411,6 +416,35 @@ export default function App() {
                 ))}
               </div>
               <p className="mt-8 text-sm leading-6 text-slate-600">Generated images work the same way. Ask your AI to write the file to disk first, then pass that absolute path. For animated typography and designed motion, render it with Remotion below and import the video instead.</p>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      <section id="editing" className="page-section py-24 sm:py-32">
+        <div className="page-section">
+          <Reveal>
+            <SectionIntro number="06 / Timeline editing" title="Scale, animate, and cut the clips you already placed." text="Point your AI at a clip by its id, such as V1.2, or just say the clip under the playhead. It can reframe it, push in or pull out over time, and razor it in two, so the repetitive parts of an edit are automated." />
+          </Reveal>
+          <Reveal className="mt-14 section-grid">
+            <div className="space-y-5 text-sm leading-6 text-slate-600">
+              <p className="section-number">What is new in 1.2</p>
+              <p><code>set_clip_transform</code> now scales on both axes, adds scaling mode, resize filter, retime and motion-estimation controls, and accepts <code>item_id="playhead"</code> so the AI can act on the clip you are looking at.</p>
+              <p><code>animate_zoom</code> builds a Fusion composition on the clip and keyframes its size, so a push-in actually plays back. It reports whether keyframes were created and falls back to a static zoom on builds that refuse scripted keyframes, rather than pretending.</p>
+              <p><code>split_clip</code> cuts a clip in two at a frame, a timecode, or the playhead. Resolve's scripting API has no razor, so the clip is rebuilt as two pieces that keep their source frames and transform. Color grades and Fusion comps on the original are not copied onto the halves, and the reply says so.</p>
+            </div>
+            <div className="max-w-3xl">
+              <CopyBlock code={editingPrompt} label="Prompt for any MCP client" />
+              <div className="mt-8 grid gap-5 sm:grid-cols-3">
+                {[
+                  ["set_clip_transform", "Static reframe: scale, pan, tilt, rotate, crop, fade, blend, scaling mode, and resize filter, by id or at the playhead."],
+                  ["animate_zoom", "Animated scale over time via a Fusion comp. Set start and end zoom and the frame range within the clip."],
+                  ["split_clip", "Razor a clip in two at a frame, timecode, or the playhead, rebuilt from Resolve's documented append API."],
+                ].map(([title, text], index) => (
+                  <div key={title} className="border-t border-slate-400 pt-4"><span className="font-mono text-xs text-blue-700">0{index + 1}</span><h4 className="mt-3 font-mono text-sm font-semibold">{title}</h4><p className="mt-2 text-sm leading-6 text-slate-600">{text}</p></div>
+                ))}
+              </div>
+              <p className="mt-8 text-sm leading-6 text-slate-600">These edits were written against Blackmagic's documented scripting API for free DaVinci Resolve. Because Resolve exposes no razor and cannot keyframe Edit-page sizing directly, cuts and animations are synthesised and reported honestly. Verify with <code>timeline_overview</code> and the doctor check on your own build.</p>
             </div>
           </Reveal>
         </div>

@@ -198,7 +198,13 @@ Put /Users/me/Desktop/logo.png on video track 2 for 4 seconds at the playhead, s
 
 `add_image` exists because appending a still like ordinary footage produces a one-frame clip: Resolve reports a still's length differently from a video clip. The tool asks for a duration in seconds, creates the video track it needs, places the still, and reports `actual_duration_frames` so nobody has to trust that the requested length was honoured. When Resolve caps the length, raise **Preferences > Editing > Standard still duration**.
 
-`set_clip_transform` then moves, scales, rotates, crops, fades, or blends any timeline item by id. Positions can be given in pixels (`pan`, `tilt`) or as a percentage of frame size (`pan_percent`, `tilt_percent`).
+`set_clip_transform` then moves, scales, rotates, crops, fades, or blends any timeline item by id. Positions can be given in pixels (`pan`, `tilt`) or as a percentage of frame size (`pan_percent`, `tilt_percent`). It also scales each axis (`zoom_x`, `zoom_y`) and sets `scaling`, `resize_filter`, `retime_process`, and `motion_estimation`. Pass `item_id="playhead"` to act on the clip under the playhead without looking up its id first.
+
+### Editing clips already on the timeline
+
+`animate_zoom` gives a clip a scale that changes over time. Because Resolve cannot keyframe Edit-page sizing through scripting, it builds a Fusion composition on the clip with a keyframed Transform node from `start_zoom` to `end_zoom`. The reply's `keyframes_created` and `trace` say exactly what Resolve did; on a build that will not keyframe from scripting it falls back to a static zoom and reports that.
+
+`split_clip` cuts a clip in two at a frame, a timecode, or the playhead. Resolve's scripting API exposes no razor, split, or trim, so the cut is synthesised: the clip's source range and transform are read, the clip is removed, and two adjacent pieces are re-appended and re-transformed. If both halves cannot be placed the original is restored. Color grades and Fusion compositions on the original are not copied onto the halves — the reply states this.
 
 Generated images work the same way: have the AI write the file to disk, then pass the absolute path. For animated typography and designed motion, render it with Remotion and import the video instead.
 
@@ -241,8 +247,10 @@ Then restart the Resolve worker and replace the old MCP entry in your AI client.
 | `insert_title` | Insert a title at the playhead, best effort |
 | `add_track` | Add video, audio, or subtitle tracks |
 | `set_track_name` | Rename a track |
-| `set_clip_transform` | Position, scale, rotate, crop, fade, or blend an item |
+| `set_clip_transform` | Position, scale (both axes), rotate, crop, fade, blend, or set scaling/resize/retime mode. Accepts `item_id="playhead"` |
 | `get_clip_transform` | Read an item's current transform values |
+| `animate_zoom` | Animate a clip's scale over time via a keyframed Fusion composition |
+| `split_clip` | Cut a clip in two at a frame, timecode, or the playhead |
 | `set_playhead` | Move to a timecode |
 | `open_page` | Switch Resolve to a page so the user can see a change |
 | `add_marker` | Add a timeline marker |
@@ -346,6 +354,8 @@ Both routes execute the same code in bridge/operations.py.
 
 - Resolve's public scripting API does not expose every action from the Edit page.
 - Transition creation and arbitrary timeline repositioning are not offered because they cannot be implemented reliably with the documented API surface.
+- There is no razor/split/trim in Resolve scripting. `split_clip` synthesises a cut by rebuilding the clip as two pieces; it does not copy color grades or Fusion comps onto the halves.
+- Edit-page sizing cannot be keyframed through scripting. `animate_zoom` builds the animation in a Fusion composition and reports `keyframes_created`; on builds that refuse scripted keyframes it applies a static zoom instead.
 - `insert_title` depends on the Resolve version and installed templates. Setting a title's text through scripting does not work on every build, and the tool reports `text_set` honestly rather than claiming success.
 - Still duration can be capped by Resolve's own preference. `add_image` reports the real result.
 - Direct attach depends on the Resolve build, the **External scripting using** preference, and whether Resolve's native module loads in your Python. The bridge probes it in a disposable subprocess first so a bad load can never take down the MCP server, and falls back to the Console worker.
@@ -358,6 +368,7 @@ Both routes execute the same code in bridge/operations.py.
 - The React instructions application is built with Vite as part of repository verification.
 - `tools/doctor.py` compiles every Python source in memory before checking the installation, then round-trips a real `status` request over whichever transport is live.
 - A real Resolve session is still required to verify each editing operation on a specific Resolve build.
+- The 1.2.0 editing tools (`split_clip`, `animate_zoom`, and the extended `set_clip_transform` modes) were written against Blackmagic's scripting README but were not run against a live Resolve for this release. Confirm them on your build with `timeline_overview` and the doctor round-trip.
 
 Do not interpret a successful web build as proof that a particular Resolve API operation works on every Resolve version.
 

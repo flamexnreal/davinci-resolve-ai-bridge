@@ -26,8 +26,10 @@ mcp = FastMCP(
     "Resolve AI Bridge",
     instructions=(
         "Inspect before editing. Call resolve_status, then timeline_overview. "
-        "Refer to timeline items by ids such as V1.2. Verify after each change. "
-        "Use add_image for stills and set_clip_transform to position them. "
+        "Refer to timeline items by ids such as V1.2, or pass item_id='playhead'. "
+        "Verify after each change. Use add_image for stills and set_clip_transform "
+        "to position them, animate_zoom for a scale that moves over time, and "
+        "split_clip to cut a clip in two. "
         "Never delete clips or start a render without explicit user approval."
     ),
 )
@@ -250,14 +252,25 @@ def set_clip_transform(
     crop_right: Optional[float] = None,
     crop_top: Optional[float] = None,
     crop_bottom: Optional[float] = None,
+    scaling: Optional[str] = None,
+    resize_filter: Optional[str] = None,
+    dynamic_zoom_ease: Optional[str] = None,
+    retime_process: Optional[str] = None,
+    motion_estimation: Optional[str] = None,
+    track_index: Optional[int] = None,
 ) -> str:
     """Position, scale, rotate, fade, crop, or blend one timeline item.
 
-    Use an id such as V2.1 from timeline_overview. pan and tilt are in pixels from
-    centre; pan_percent and tilt_percent are the same move as a percentage of the
-    timeline width and height. zoom sets both axes at once, where 1.0 is original
-    size. opacity runs from 0 to 100. composite_mode accepts names such as normal,
-    screen, multiply, add, overlay, or alpha.
+    Use an id such as V2.1 from timeline_overview, or pass item_id="playhead" to
+    act on the clip currently under the playhead so you need not look up the id.
+    pan and tilt are in pixels from centre; pan_percent and tilt_percent are the
+    same move as a percentage of the timeline width and height. zoom sets both
+    axes at once, where 1.0 is original size; zoom_x and zoom_y scale one axis.
+    opacity runs from 0 to 100. composite_mode accepts names such as normal,
+    screen, multiply, add, overlay, or alpha. scaling is crop, fit, fill, or
+    stretch. resize_filter, retime_process, and motion_estimation accept the
+    Resolve mode names. This sets a static transform; for a scale that animates
+    over time use animate_zoom instead.
     """
     return _result(
         "set_clip_transform",
@@ -281,14 +294,81 @@ def set_clip_transform(
             "crop_right": crop_right,
             "crop_top": crop_top,
             "crop_bottom": crop_bottom,
+            "scaling": scaling,
+            "resize_filter": resize_filter,
+            "dynamic_zoom_ease": dynamic_zoom_ease,
+            "retime_process": retime_process,
+            "motion_estimation": motion_estimation,
+            "track_index": track_index,
         },
     )
 
 
 @mcp.tool()
-def get_clip_transform(item_id: str) -> str:
-    """Read the current position, scale, rotation, crop, opacity, and blend mode of one timeline item."""
-    return _result("get_clip_transform", {"item_id": item_id})
+def get_clip_transform(item_id: str = "playhead", track_index: Optional[int] = None) -> str:
+    """Read the current position, scale, rotation, crop, opacity, and blend mode of one timeline item.
+
+    Pass an id such as V2.1, or leave item_id as "playhead" to read the clip under the playhead.
+    """
+    return _result("get_clip_transform", {"item_id": item_id, "track_index": track_index})
+
+
+@mcp.tool()
+def split_clip(
+    item_id: str = "playhead",
+    frame: Optional[int] = None,
+    timecode: Optional[str] = None,
+    track_index: Optional[int] = None,
+) -> str:
+    """Cut one timeline clip into two pieces at a point, automating a razor edit.
+
+    Resolve's scripting API has no razor, so the cut is rebuilt: the clip is
+    removed and re-added as two adjacent pieces that keep the original source
+    frames and Edit-page transform. Identify the clip by an id such as V1.2, or
+    leave item_id as "playhead" to cut the clip under the playhead. Choose the
+    cut point with frame (a timeline frame), timecode (HH:MM:SS:FF), or neither
+    to cut at the playhead. Color grades and Fusion comps on the original are not
+    copied to the halves; the result says so. Verify with timeline_overview.
+    """
+    return _result(
+        "split_clip",
+        {"item_id": item_id, "frame": frame, "timecode": timecode, "track_index": track_index},
+    )
+
+
+@mcp.tool()
+def animate_zoom(
+    item_id: str = "playhead",
+    start_zoom: float = 1.0,
+    end_zoom: float = 1.5,
+    start_frame: int = 0,
+    end_frame: Optional[int] = None,
+    track_index: Optional[int] = None,
+) -> str:
+    """Animate a clip's scale over time so a push-in or pull-out plays back automatically.
+
+    The Edit page sizing cannot be keyframed through scripting, so this builds a
+    Fusion composition on the clip with a keyframed Transform node. start_zoom and
+    end_zoom are scale multipliers where 1.0 is original size; start_frame and
+    end_frame are offsets within the clip (frame 0 is the clip's first frame; omit
+    end_frame to run to the clip's end). Identify the clip by an id such as V1.2 or
+    leave item_id as "playhead". Read keyframes_created in the result: on builds
+    that will not keyframe from scripting it falls back to a static zoom and says
+    so. Open the Fusion page on the clip to fine-tune. For a static scale with no
+    animation, use set_clip_transform instead.
+    """
+    return _result(
+        "animate_zoom",
+        {
+            "item_id": item_id,
+            "start_zoom": start_zoom,
+            "end_zoom": end_zoom,
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+            "track_index": track_index,
+        },
+        timeout=60.0,
+    )
 
 
 @mcp.tool()
@@ -413,13 +493,20 @@ def editing_guide() -> str:
    stays visible, then position with `set_clip_transform` or the pan/tilt/zoom
    arguments of `add_image`. Always check `actual_duration_frames` in the result,
    because Resolve can shorten a still to its default length.
-7. `insert_title` is best effort. If `text_set` is false, say so and ask the user to
+7. Scale and reframe clips already on the timeline with `set_clip_transform` (a static
+   size) or `animate_zoom` (a size that changes over time, built as a Fusion
+   composition). Cut a clip in two with `split_clip`. All three accept
+   `item_id="playhead"` to act on the clip under the playhead, so you need not look up
+   the id first. `split_clip` rebuilds the clip and does not copy color grades or
+   Fusion comps onto the halves; `animate_zoom` reports `keyframes_created` and falls
+   back to a static zoom on builds that will not keyframe from scripting.
+8. `insert_title` is best effort. If `text_set` is false, say so and ask the user to
    type the text in the Inspector.
-8. Timeline item frames are absolute Resolve timeline frames unless a tool says
+9. Timeline item frames are absolute Resolve timeline frames unless a tool says
    otherwise. Marker frames are relative to the timeline start.
-9. Prefer Remotion for designed motion graphics and animated typography. Render a
-   clip, import it, then ask where to place it.
-10. Resolve's public scripting API cannot perform every interactive Edit page action.
+10. Prefer Remotion for designed motion graphics and animated typography. Render a
+    clip, import it, then ask where to place it.
+11. Resolve's public scripting API cannot perform every interactive Edit page action.
     If a tool is absent, explain the limitation instead of pretending it worked.
 """
 

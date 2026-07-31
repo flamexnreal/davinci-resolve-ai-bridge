@@ -14,12 +14,22 @@ import venv
 from pathlib import Path
 
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 ROOT = Path(__file__).resolve().parent
 HOME = Path(os.environ.get("RESOLVE_AI_BRIDGE_HOME", Path.home() / ".resolve-ai-bridge")).expanduser()
 TOKEN_FILE = HOME / "token.txt"
 
 MENU_FOLDER = "Resolve AI Bridge"
+# Stray scripts from earlier hand-made experiments that clutter Workspace >
+# Scripts. The installer moves any it finds out of Resolve's Utility folder into
+# a reversible backup rather than deleting them outright. Matching is by exact
+# name or by these prefixes.
+SUPERSEDED_SCRIPT_NAMES = {
+    "Resolve AI Bridge.py",
+    "Start Resolve AI Bridge.py",
+    "add_explosion_overlay.py",
+}
+SUPERSEDED_SCRIPT_PREFIXES = ("RFAIB_",)
 CONSOLE_LINE = (
     'import os;exec(open(os.path.expanduser("~/.resolve-ai-bridge/ResolveConsole.py"),'
     'encoding="utf-8").read())'
@@ -172,6 +182,39 @@ def resolve_script_roots():
     ]
 
 
+def _is_superseded_script(name):
+    if name in SUPERSEDED_SCRIPT_NAMES:
+        return True
+    return any(name.startswith(prefix) for prefix in SUPERSEDED_SCRIPT_PREFIXES)
+
+
+def tidy_superseded_scripts():
+    """Move earlier stray Resolve scripts into a reversible backup folder.
+
+    Keeps Workspace > Scripts > Utility clean without destroying work: anything
+    matched is moved under HOME/removed-scripts-backup, never deleted, so the
+    user can restore or bin it themselves.
+    """
+    backup = HOME / "removed-scripts-backup"
+    moved = []
+    for root in resolve_script_roots():
+        utility = root / "Utility"
+        if not utility.is_dir():
+            continue
+        for entry in utility.iterdir():
+            if entry.is_file() and _is_superseded_script(entry.name):
+                try:
+                    backup.mkdir(parents=True, exist_ok=True)
+                    target = backup / entry.name
+                    if target.exists():
+                        target = backup / ("%s.%d%s" % (entry.stem, int(entry.stat().st_mtime), entry.suffix))
+                    shutil.move(str(entry), str(target))
+                    moved.append((str(entry), str(target)))
+                except OSError:
+                    continue
+    return moved
+
+
 def install_menu_scripts():
     """Copy the one-click launchers into Workspace > Scripts > Utility."""
     source = ROOT / "agent" / "menu"
@@ -292,11 +335,15 @@ def main():
     print("[3/5] Writing the authenticated MCP configuration...")
     _entry, _config, claude_line, codex_line = write_configs(token)
     menu_paths = [] if args.no_menu else install_menu_scripts()
+    tidied = [] if args.no_menu else tidy_superseded_scripts()
     print("[4/5] %s" % (
         "Installed the Workspace > Scripts menu entries."
         if menu_paths
         else "Skipped the Workspace > Scripts menu entries."
     ))
+    if tidied:
+        print("      Moved %d superseded script(s) out of the Scripts menu into %s"
+              % (len(tidied), HOME / "removed-scripts-backup"))
     skill_paths = install_skills()
     print("[5/5] Installed the Resolve editing skill in standard skill locations.")
 

@@ -26,6 +26,18 @@ Create a new timeline named Title Card. Add /absolute/path/to/background.jpg to 
 Inspect the timeline and find the image on V2. Set its opacity to 40, then read the transform back and confirm the value Resolve stored.
 ```
 
+## Push In On A Clip Over Time
+
+```text
+Inspect the timeline. Take the clip under the playhead and animate its zoom from 100 percent to 125 percent over the clip's first two seconds using animate_zoom. Report keyframes_created from the reply: if it is false, tell me a static zoom was applied instead and why, and do not claim the move is animated.
+```
+
+## Cut A Clip At The Playhead
+
+```text
+Inspect the timeline. Split the clip under the playhead at the current playhead frame with split_clip. Then inspect again and show me the two resulting item ids, their start and end frames, and remind me that any grade on the original was not copied to the halves.
+```
+
 ## Import a Rendered Motion Graphic
 
 ```text
