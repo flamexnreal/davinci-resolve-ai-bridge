@@ -6,12 +6,12 @@
 
 Resolve AI Bridge is an MIT-licensed local MCP bridge that lets a compatible AI client inspect and control the project currently open in DaVinci Resolve.
 
-**Version 1.1 removes the two things people got stuck on:**
+**Version 1.2 adds timeline clip editing, razor splits, and keyframed zoom animations:**
 
 - Nothing to edit. No `YOUR_NAME` to replace anywhere.
 - Nothing to repaste. The bridge attaches to Resolve on its own, with a one-click Resolve menu entry as a fallback.
 
-It also adds real image support, so an AI client can drop a PNG or JPEG onto your timeline and position it.
+It also adds timeline editing tools (`split_clip`, `animate_zoom`, `set_clip_transform`), image placement, and full track management.
 
 ## How it connects
 
