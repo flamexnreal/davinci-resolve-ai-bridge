@@ -43,7 +43,7 @@ def main():
         print("  Version: %s" % heartbeat.get("agent_version", "unknown"))
     else:
         print("\nConsole worker: not running")
-        print("  Start it with Workspace > Scripts > Resolve AI Bridge > Start AI Bridge.")
+        print("  Start it with the script printed by Workspace > Scripts > Resolve AI Bridge > Start AI Bridge (in Py3 Console).")
         print("  Your AI client may still reach Resolve directly, which needs no worker.")
 
     config = os.path.join(HOME, "mcp-config.json")

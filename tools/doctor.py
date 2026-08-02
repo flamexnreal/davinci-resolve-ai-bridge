@@ -172,10 +172,12 @@ def main():
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
         entry = config["mcpServers"]["resolve-ai-bridge"]
+        env_token = entry.get("env", {}).get("RESOLVE_AI_BRIDGE_TOKEN")
+        token_valid = (env_token == token) if env_token else token_path.exists()
         config_ok = (
             Path(entry["command"]).exists()
             and Path(entry["args"][0]).exists()
-            and entry.get("env", {}).get("RESOLVE_AI_BRIDGE_TOKEN") == token
+            and token_valid
         )
         if not config_ok:
             config_detail = "paths or token do not match; rerun install.py"

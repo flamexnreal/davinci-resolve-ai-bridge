@@ -36,11 +36,8 @@ npm run dev`;
 const configExample = `{
   "mcpServers": {
     "resolve-ai-bridge": {
-      "command": "/ABSOLUTE/PATH/TO/.venv/bin/python",
-      "args": ["/ABSOLUTE/PATH/TO/bridge/server.py"],
-      "env": {
-        "RESOLVE_AI_BRIDGE_TOKEN": "RAB_TOKEN_FROM_THE_INSTALLER"
-      }
+      "command": "/ABSOLUTE/PATH/TO/.resolve-ai-bridge/.venv/bin/python",
+      "args": ["/ABSOLUTE/PATH/TO/.resolve-ai-bridge/bridge/server.py"]
     }
   }
 }`;
@@ -300,7 +297,7 @@ export default function App() {
         <Reveal className="mt-16 grid gap-0 border-y border-slate-300 md:grid-cols-3">
           {[
             ["Route 1 - default", "Just open Resolve", "Open Resolve and your project. The MCP server finds it. To switch the bridge off, disconnect or disable the MCP server in your AI client."],
-            ["Route 2 - one click", "Workspace > Scripts", "Choose Workspace > Scripts > Resolve AI Bridge > Start AI Bridge. Resolve only scans for new menu entries at launch, so restart Resolve once after installing."],
+            ["Route 2 - launcher helper", "Workspace > Scripts", "Choose Workspace > Scripts > Resolve AI Bridge > Start AI Bridge. It outputs the exact Py3 activation script directly into your Resolve Console window to paste into the Py3 tab."],
             ["Route 3 - fallback", "One portable line", "Paste the line below into Workspace > Console with the Py3 tab selected. It is the same text on every computer."],
           ].map(([n, title, text], i) => (
             <div key={title} className={`py-8 md:px-8 ${i > 0 ? "border-t border-slate-300 md:border-l md:border-t-0" : ""}`}>

@@ -20,7 +20,7 @@ The bridge picks whichever route works, automatically.
 | Route | What you do | How it works |
 | --- | --- | --- |
 | **Direct attach** (default) | Open Resolve | The MCP process talks to the running Resolve through Blackmagic's native scripting library. Nothing runs inside Resolve. |
-| **Console worker** (fallback) | **Workspace > Scripts > Resolve AI Bridge > Start AI Bridge**, one click | A daemon thread inside Resolve reads token-protected JSON from `~/.resolve-ai-bridge/inbox` and replies through `outbox`. |
+| **Console launcher helper** | **Workspace > Scripts > Resolve AI Bridge > Start AI Bridge** | Displays the activation command directly in DaVinci Resolve's Console so you can copy and paste it into the Py3 tab. |
 
 `resolve_status` and `tools/doctor.py` both report which route is live.
 
@@ -97,10 +97,7 @@ Its shape is:
       "command": "/ABSOLUTE/PATH/TO/.resolve-ai-bridge/.venv/bin/python",
       "args": [
         "/ABSOLUTE/PATH/TO/.resolve-ai-bridge/bridge/server.py"
-      ],
-      "env": {
-        "RESOLVE_AI_BRIDGE_TOKEN": "RAB_TOKEN_FROM_THE_INSTALLER"
-      }
+      ]
     }
   }
 }
@@ -144,19 +141,19 @@ Open **Cursor Settings**, search for **MCP**, choose **Add new global MCP server
 
 Open Resolve and your project. In most cases that is the entire step.
 
-If your AI reports the bridge as offline, use the one-click launcher:
+If your AI reports the bridge as offline, run the Console launcher helper:
 
 **Workspace > Scripts > Resolve AI Bridge > Start AI Bridge**
 
-The same menu has **Bridge Status** and **Stop AI Bridge**.
+This prints the exact script to copy and paste into **Workspace > Console** (with the **Py3** tab selected).
 
-As a last resort, paste this into **Workspace > Console** with the **Py3** tab selected. It is identical on every computer and on every operating system, with nothing to substitute:
+Or paste this line directly into **Workspace > Console** with the **Py3** tab selected:
 
 ```python
 import os;exec(open(os.path.expanduser("~/.resolve-ai-bridge/ResolveConsole.py"),encoding="utf-8").read())
 ```
 
-The same line is saved at `~/.resolve-ai-bridge/console-command.txt`. The worker runs on a daemon thread, so the Console stays usable. Stop it with:
+The same line is saved at `~/.resolve-ai-bridge/console-command.txt`. A Console paste runs on a daemon thread, so the Console stays usable. The menu launcher uses a non-daemon worker because Resolve can close a one-shot menu-script context when the launcher returns. Stop it with:
 
 ```python
 __resolve_ai_bridge_runtime__.stop()

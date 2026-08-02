@@ -8,7 +8,7 @@ This release makes the one-click launcher dependable and gives your AI three thi
 
 Clicking **Workspace > Scripts > Resolve AI Bridge > Start AI Bridge** sometimes did nothing, and the only fix was to repaste the Console line. Cause: the menu launcher relied on Resolve injecting its `resolve` object into the script's globals, which Resolve does not always do for a Scripts-menu run.
 
-The worker no longer depends on that injection. When the object is not handed to it, it imports Resolve's own scripting library from disk (`fusionscript` / `DaVinciResolveScript`, with a direct load of `fusionscript.so`/`.dll` as a final step) and asks Resolve for the app itself — exactly what a Console paste does. The launcher also collects every host object it can see and forwards it to the worker, and on failure it prints the reason, the log path, and the Console fallback instead of dying silently. **The menu click now behaves the same as a Console paste.**
+The worker no longer depends on that injection. When the object is not handed to it, it imports Resolve's own scripting library from disk (`fusionscript` / `DaVinciResolveScript`, with a direct load of `fusionscript.so`/`.dll` as a final step) and asks Resolve for the app itself — exactly what a Console paste does. The launcher also collects every host object it can see and forwards it to the worker, and on failure it prints the reason, the log path, and the Console fallback instead of dying silently. The menu path uses a non-daemon worker so Resolve does not tear it down when the one-shot script returns; a Console paste retains its daemon behavior. **The menu click now remains connected without repasting.**
 
 ### Scale clips you already placed
 

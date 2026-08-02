@@ -373,14 +373,14 @@ def main():
             print("        Check detail: %s" % direct["reason"])
 
     if menu_paths:
-        print("\nSTEP 3  One-click fallback, always available:")
+        print("\nSTEP 3  Console launcher helper:")
         print("        Restart DaVinci Resolve once, then choose")
         print("        Workspace > Scripts > Resolve AI Bridge > Start AI Bridge.")
-        print("        Resolve only scans for new menu scripts while it starts up.")
+        print("        It prints the exact Py3 Console command into Resolve's Console for easy copy-pasting.")
         for path in menu_paths:
             print("          %s" % path)
 
-    print("\n        Last resort, and still nothing to edit. Workspace > Console, Py3 tab:")
+    print("\n        Direct Console command (Workspace > Console, Py3 tab):")
     print("          %s" % CONSOLE_LINE)
     print("        The same line is saved at %s" % (HOME / "console-command.txt"))
 

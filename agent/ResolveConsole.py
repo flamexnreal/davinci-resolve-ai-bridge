@@ -12,8 +12,10 @@ Three ways to start this file, all equivalent:
 3. Nothing at all, when the MCP server can attach to Resolve directly. Run
    ``python3 tools/doctor.py`` to see which route your machine uses.
 
-The worker captures Resolve's injected API object, starts a daemon thread, and
-returns control to the Console immediately. It only depends on the standard
+The worker captures Resolve's injected API object, starts a background thread,
+and returns control to the Console immediately. The Workspace Scripts launcher
+uses a non-daemon thread because Resolve may tear down a one-shot menu-script
+context as soon as the launcher returns. It only depends on the standard
 library and on ``bridge/operations.py``, which the installer places beside it.
 """
 
@@ -273,7 +275,16 @@ class ResolveRuntime:
             self.summary()
             return
         self.stop_event.clear()
-        self.thread = threading.Thread(target=self._loop, name="ResolveAIBridge", daemon=True)
+        # Resolve runs Workspace scripts in a short-lived interpreter context.
+        # A daemon thread is killed when that context returns, often before the
+        # first heartbeat is written. The menu launcher opts into a non-daemon
+        # worker; a pasted Console command keeps the historical daemon behavior.
+        keepalive = bool(globals().get("RESOLVE_AI_BRIDGE_KEEPALIVE"))
+        self.thread = threading.Thread(
+            target=self._loop,
+            name="ResolveAIBridge",
+            daemon=not keepalive,
+        )
         self.thread.start()
         self.summary()
 
