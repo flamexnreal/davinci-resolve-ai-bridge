@@ -90,6 +90,30 @@ Then ask your AI:
 
 ---
 
+## Motion Graphics with Remotion
+
+For programmatic motion graphics, lower thirds, animated titles, and video overlays, using [Remotion](https://www.remotion.dev/) (React-based video) alongside this bridge is recommended. AI coding agents can generate React components with precise timing, animations, typography, and layout, render them to video files, and place them directly onto your DaVinci Resolve timeline using `append_media` or `add_image`.
+
+### Getting Started with Remotion
+
+1. **Install Node.js LTS** from [nodejs.org](https://nodejs.org/).
+2. **Install the official Remotion skill for AI agents**:
+   ```bash
+   npx -y skills@latest add remotion-dev/skills -g -y
+   ```
+3. **Create a motion graphics project**:
+   ```bash
+   npx create-video@latest --yes --blank motion-graphics
+   cd motion-graphics
+   npm install
+   npm run dev
+   ```
+4. Ask your AI coding agent to generate titles, transitions, or overlays in Remotion, render the composition, and import it into your open DaVinci Resolve project.
+
+See [`docs/REMOTION.md`](./docs/REMOTION.md) for full workflows and rendering instructions.
+
+---
+
 ## Free vs Studio Version
 
 Blackmagic Design's scripting APIs provide a common superset for both the Free and Studio versions of DaVinci Resolve. No feature in this bridge requires Studio-only tools. If external scripting is disabled in Resolve Preferences, the bridge falls back to the internal Console worker and all tools behave identically.
