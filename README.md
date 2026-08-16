@@ -6,19 +6,19 @@ Resolve AI Bridge is an open-source local MCP bridge that lets AI coding assista
 
 ## Quick Setup
 
-### 1. Run the installer
+### 1. One-Line Install (No Download or Folder Navigation Needed)
 
-macOS:
+macOS / Linux:
 ```bash
-python3 install.py
+curl -fsSL https://raw.githubusercontent.com/flamexnreal/davinci-resolve-ai-bridge/main/install.sh | bash
 ```
-*(Or double-click `install-macos.command`)*
 
 Windows PowerShell:
 ```powershell
-py install.py
+irm https://raw.githubusercontent.com/flamexnreal/davinci-resolve-ai-bridge/main/install.ps1 | iex
 ```
-*(Or double-click `install-windows.bat`)*
+
+*(Alternatively, if you downloaded the ZIP, double-click `install-macos.command` / `install-windows.bat` or run `python3 install.py`).*
 
 The installer sets up the local runtime environment, installs dependencies, and automatically configures detected AI tools (Claude Desktop, Cursor, Windsurf, VS Code, Claude Code, Codex, and Antigravity).
 
