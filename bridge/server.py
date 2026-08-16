@@ -21,6 +21,10 @@ from mcp.server.fastmcp import FastMCP
 from bridge import client, transport
 from bridge.operations import AGENT_VERSION
 
+# Ensure local runtime folders and token exist immediately
+client._ensure_dirs()
+client._token()
+
 
 mcp = FastMCP(
     "Resolve AI Bridge",

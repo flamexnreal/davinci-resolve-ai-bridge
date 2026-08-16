@@ -59,16 +59,12 @@ The MCP process treats the worker as offline when `agent.json` is missing or old
 3. Run **Start AI Bridge** again. A running worker prints its summary without starting a second one.
 4. Run doctor again.
 
-## Token Mismatch
+## Token Mismatch or Authentication
 
-The MCP client and the worker are using different tokens.
+The bridge uses a private local token file stored at `~/.resolve-ai-bridge/token.txt` (chmod `0600`).
+Both the MCP server and Resolve Console worker read the same file automatically, so no token needs to be typed or configured in your AI client.
 
-1. Open `~/.resolve-ai-bridge/mcp-config.json`.
-2. Replace the old `resolve-ai-bridge` entry in the provider's MCP config.
-3. Restart the provider.
-4. Start the worker again.
-
-Direct attach does not use the token at all, because there is no queue between processes.
+If you previously hardcoded an old `RESOLVE_AI_BRIDGE_TOKEN` in your AI client's MCP configuration (`env` block), simply remove the `env` block from your MCP settings. The server will automatically use the live local token file.
 
 Rotate a leaked token with:
 

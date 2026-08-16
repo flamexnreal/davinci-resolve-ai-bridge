@@ -1,17 +1,12 @@
-# Start Here: Open `00_START_HERE.html`
-
-**For the clearest setup, open [`00_START_HERE.html`](./00_START_HERE.html) first.** It is the visual, step-by-step guide for macOS, Windows, Antigravity, Claude Code, Codex, Cursor, images, and Remotion. Keep this entire folder together while using it.
-
-# Resolve AI Bridge
+# DaVinci Resolve AI Bridge
 
 Resolve AI Bridge is an MIT-licensed local MCP bridge that lets a compatible AI client inspect and control the project currently open in DaVinci Resolve.
 
-**Version 1.2 adds timeline clip editing, razor splits, and keyframed zoom animations:**
-
-- Nothing to edit. No `YOUR_NAME` to replace anywhere.
-- Nothing to repaste. The bridge attaches to Resolve on its own, with a one-click Resolve menu entry as a fallback.
-
-It also adds timeline editing tools (`split_clip`, `animate_zoom`, `set_clip_transform`), image placement, and full track management.
+**Zero-Configuration Multi-Harness Integration:**
+- **Auto-Configuring Installer**: Automatically discovers and registers with Claude Desktop, Cursor, Antigravity, Windsurf, VS Code (Cline/Roo), Codex, and Claude Code.
+- **Zero-Token Local Authentication**: Authentication between the MCP server and DaVinci Resolve is automatically and transparently secured via a private local file token (`~/.resolve-ai-bridge/token.txt`). No manual token typing or copying.
+- **Portable Zero-Edit Snippet**: Dynamic `$HOME` expansion and global CLI launcher `resolve-ai-bridge` so you never have to replace usernames or home paths.
+- **Timeline Clip Editing**: Timeline editing tools (`split_clip`, `animate_zoom`, `set_clip_transform`), image placement, and full track management.
 
 ## How it connects
 
@@ -82,60 +77,43 @@ It does not rewrite an AI client's existing MCP settings.
 
 ### 3. Add the MCP server to your AI client
 
-The installer prints a ready command for Claude Code and Codex. The same filled configuration is saved at:
+**The installer auto-configures Claude Desktop, Claude Code, and Codex automatically.**
 
-```text
-~/.resolve-ai-bridge/mcp-config.json
-```
+For other clients (such as Antigravity or Cursor), you can use the **zero-edit portable configuration** below — no username or home folder editing is required:
 
-Its shape is:
+#### Option A: Portable Zero-Edit Snippet (Works on any Mac/Linux machine without editing)
 
 ```json
 {
   "mcpServers": {
     "resolve-ai-bridge": {
-      "command": "/ABSOLUTE/PATH/TO/.resolve-ai-bridge/.venv/bin/python",
+      "command": "sh",
       "args": [
-        "/ABSOLUTE/PATH/TO/.resolve-ai-bridge/bridge/server.py"
+        "-c",
+        "exec \"$HOME/.resolve-ai-bridge/.venv/bin/python\" \"$HOME/.resolve-ai-bridge/bridge/server.py\""
       ]
     }
   }
 }
 ```
 
-Do not use `~` or a relative path in MCP settings. Use the absolute paths the installer generated.
+#### Option B: Global CLI Launcher
 
-#### Antigravity
+The installer places a global launcher at `~/.local/bin/resolve-ai-bridge`:
 
-1. Open the Agent panel.
-2. Open the three-dot menu and select **MCP Servers**.
-3. Choose **Manage MCP Servers**, then **View raw config**.
-4. Merge the `resolve-ai-bridge` entry into the existing `mcpServers` object, preserving every server already there.
-5. Save, refresh the MCP list, and restart Antigravity if needed.
-
-#### Claude Code
-
-Run the command saved at `~/.resolve-ai-bridge/claude-command.txt`. It has this macOS shape:
-
-```bash
-claude mcp add-json resolve-ai-bridge "$(cat ~/.resolve-ai-bridge/claude-server-entry.json)" --scope user
+```json
+{
+  "mcpServers": {
+    "resolve-ai-bridge": {
+      "command": "resolve-ai-bridge"
+    }
+  }
+}
 ```
 
-Restart Claude Code and run `/mcp`. If your version does not support `add-json`, merge the full JSON through its MCP settings instead.
+#### Option C: Explicit Absolute Paths
 
-#### Codex
-
-Run the command saved at `~/.resolve-ai-bridge/codex-command.txt`. It has this shape:
-
-```bash
-codex mcp add resolve-ai-bridge --env RESOLVE_AI_BRIDGE_TOKEN=TOKEN -- /absolute/path/.venv/bin/python /absolute/path/bridge/server.py
-```
-
-Then use `codex mcp list` and restart Codex.
-
-#### Cursor
-
-Open **Cursor Settings**, search for **MCP**, choose **Add new global MCP server**, and merge the generated entry into `mcpServers`.
+The installer also outputs your machine's exact paths directly into the terminal and saves them to `~/.resolve-ai-bridge/mcp-config.json`.
 
 ### 4. Open Resolve
 
@@ -372,7 +350,6 @@ Do not interpret a successful web build as proof that a particular Resolve API o
 ## Repository Layout
 
 ```text
-00_START_HERE.html             visual setup guide
 README.md                      complete written reference
 RELEASE_NOTES.md               what changed in this version
 install.py                     cross-platform installer
@@ -390,18 +367,9 @@ bridge/server.py               MCP tools over stdio
 tools/doctor.py                syntax, install, transport, and round-trip checks
 skills/resolve-ai-editing/     included Agent Skill
 docs/                          troubleshooting, recipes, and Remotion guide
-src/                           source for the visual guide
 ```
 
 ## Development
-
-Web guide:
-
-```bash
-npm install
-npm run dev
-npm run build
-```
 
 Python syntax and local installation checks:
 
@@ -420,10 +388,10 @@ Important contributor rules are in `AGENTS.md`.
 
 ## Need Help From Your Provider?
 
-After following the steps above, paste this into Antigravity, Claude Code, Codex, or another local coding agent:
+After following the steps above, paste this into Antigravity, Claude Code, Codex, Cursor, or another local coding agent:
 
 ```text
-Read 00_START_HERE.html and README.md in this project. Run tools/doctor.py, inspect ~/.resolve-ai-bridge/mcp-config.json, and configure your own MCP settings for resolve-ai-bridge. Preserve my existing MCP servers. Do not change or expose the token. Test with resolve_status only and explain any error in simple steps.
+Read README.md in this project. Run tools/doctor.py, inspect ~/.resolve-ai-bridge/mcp-config.json, and configure your own MCP settings for resolve-ai-bridge. Preserve my existing MCP servers. Test with resolve_status only and explain any error in simple steps.
 ```
 
 ## License

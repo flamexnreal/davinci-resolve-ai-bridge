@@ -323,11 +323,10 @@ class ResolveRuntime:
         entry = {
             "command": str(venv_python),
             "args": [str(server)],
-            "env": {"RESOLVE_AI_BRIDGE_TOKEN": self.token},
         }
-        print("\nGENERIC MCP SERVER ENTRY:")
+        print("\nGENERIC MCP SERVER ENTRY (zero-token standard):")
         print(json.dumps(entry, indent=2))
-        print("\nFULL MCP CONFIG (Antigravity, Cursor, and other JSON clients):")
+        print("\nFULL MCP CONFIG (Antigravity, Cursor, Claude Desktop, and JSON clients):")
         print(json.dumps({"mcpServers": {"resolve-ai-bridge": entry}}, indent=2))
         claude_entry_file = HOME / "claude-server-entry.json"
         if os.name == "nt":
@@ -345,10 +344,10 @@ class ResolveRuntime:
         print(claude_line)
         print("\nCODEX CLI COMMAND:")
         print(
-            "codex mcp add resolve-ai-bridge --env RESOLVE_AI_BRIDGE_TOKEN=%s -- %s"
-            % (self.token, launch)
+            "codex mcp add resolve-ai-bridge -- %s"
+            % launch
         )
-        print("\nToken: %s  (keep private)" % self.token)
+        print("\nLocal Token: %s (auto-managed at %s)" % (self.token, TOKEN_FILE))
         print("")
 
     # Kept as an alias so older instructions and screenshots still work.

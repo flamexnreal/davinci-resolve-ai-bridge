@@ -118,11 +118,10 @@ def install_dependencies(skip=False):
         )
 
 
-def write_configs(token):
+def write_configs(token=None):
     entry = {
         "command": str(venv_python().resolve()),
         "args": [str((HOME / "bridge" / "server.py").resolve())],
-        "env": {"RESOLVE_AI_BRIDGE_TOKEN": token},
     }
     config = {"mcpServers": {"resolve-ai-bridge": entry}}
     (HOME / "mcp-server-entry.json").write_text(json.dumps(entry, indent=2) + "\n", encoding="utf-8")
@@ -139,20 +138,22 @@ def write_configs(token):
     (HOME / "console-command.txt").write_text(CONSOLE_LINE + "\n", encoding="utf-8")
 
     if os.name == "nt":
-        launch = subprocess.list2cmdline([entry["command"], entry["args"][0]])
         claude_line = (
             '$entry = Get-Content -Raw "%s"; '
             "claude mcp add-json resolve-ai-bridge $entry --scope user"
         ) % (HOME / "claude-server-entry.json")
+        codex_line = 'codex mcp add resolve-ai-bridge -- "%s" "%s"' % (
+            entry["command"],
+            entry["args"][0],
+        )
     else:
-        launch = "%s %s" % (shlex.quote(entry["command"]), shlex.quote(entry["args"][0]))
         claude_line = 'claude mcp add-json resolve-ai-bridge "$(cat %s)" --scope user' % shlex.quote(
             str(HOME / "claude-server-entry.json")
         )
-    codex_line = "codex mcp add resolve-ai-bridge --env RESOLVE_AI_BRIDGE_TOKEN=%s -- %s" % (
-        token,
-        launch,
-    )
+        codex_line = "codex mcp add resolve-ai-bridge -- %s %s" % (
+            shlex.quote(entry["command"]),
+            shlex.quote(entry["args"][0]),
+        )
     (HOME / "codex-command.txt").write_text(codex_line + "\n", encoding="utf-8")
     (HOME / "claude-command.txt").write_text(claude_line + "\n", encoding="utf-8")
     return entry, config, claude_line, codex_line
@@ -254,21 +255,169 @@ def install_skills():
     if not source.exists():
         return []
     installed = []
-    for target in (
+    target_locations = [
+        # Antigravity / Gemini
+        Path.home() / ".gemini" / "config" / "skills" / "resolve-ai-editing" / "SKILL.md",
+        Path.home() / ".gemini" / "antigravity" / "skills" / "resolve-ai-editing" / "SKILL.md",
+        # Claude
         Path.home() / ".claude" / "skills" / "resolve-ai-editing" / "SKILL.md",
+        # Codex
         Path.home() / ".codex" / "skills" / "resolve-ai-editing" / "SKILL.md",
-    ):
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
-            installed.append(str(target))
-        except OSError:
-            pass
+        # Cursor
+        Path.home() / ".cursor" / "skills" / "resolve-ai-editing" / "SKILL.md",
+        Path.home() / ".cursor" / "skills-cursor" / "resolve-ai-editing" / "SKILL.md",
+        # Windsurf
+        Path.home() / ".codeium" / "windsurf" / "skills" / "resolve-ai-editing" / "SKILL.md",
+    ]
+    for target in target_locations:
+        if target.parent.parent.is_dir() or target.parent.is_dir():
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                installed.append(str(target))
+            except OSError:
+                pass
     runtime_skill = HOME / "skills" / "resolve-ai-editing" / "SKILL.md"
     runtime_skill.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, runtime_skill)
     installed.append(str(runtime_skill))
     return installed
+
+
+def install_global_launcher():
+    """Install a global wrapper script so users can use command: 'resolve-ai-bridge' with zero path config."""
+    launcher_paths = []
+    if os.name == "nt":
+        target_dir = Path(os.environ.get("USERPROFILE", Path.home())) / ".local" / "bin"
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            batch = target_dir / "resolve-ai-bridge.cmd"
+            script_content = '@echo off\r\n"%s" "%s" %%*\r\n' % (
+                venv_python().resolve(),
+                (HOME / "bridge" / "server.py").resolve(),
+            )
+            batch.write_text(script_content, encoding="utf-8")
+            launcher_paths.append(str(batch))
+        except OSError:
+            pass
+    else:
+        candidates = [
+            Path.home() / ".local" / "bin",
+            Path("/usr/local/bin"),
+        ]
+        for target_dir in candidates:
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+                launcher = target_dir / "resolve-ai-bridge"
+                script_content = '#!/bin/sh\nexec "%s" "%s" "$@"\n' % (
+                    venv_python().resolve(),
+                    (HOME / "bridge" / "server.py").resolve(),
+                )
+                launcher.write_text(script_content, encoding="utf-8")
+                launcher.chmod(0o755)
+                launcher_paths.append(str(launcher))
+                break
+            except (OSError, PermissionError):
+                continue
+    return launcher_paths
+
+
+def auto_configure_clients(entry):
+    """Automatically detect and configure installed AI clients without manual copy-pasting."""
+    configured = []
+
+    def _merge_mcp_config(config_path, label):
+        try:
+            config_path = Path(config_path)
+            if not config_path.parent.is_dir():
+                return False
+            data = {}
+            if config_path.is_file():
+                try:
+                    data = json.loads(config_path.read_text(encoding="utf-8"))
+                except Exception:
+                    data = {}
+            if not isinstance(data, dict):
+                data = {}
+            if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
+                data["mcpServers"] = {}
+            data["mcpServers"]["resolve-ai-bridge"] = entry
+            config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            if label not in configured:
+                configured.append(label)
+            return True
+        except OSError:
+            return False
+
+    # 1. Claude Desktop
+    if sys.platform.startswith("darwin"):
+        _merge_mcp_config(Path.home() / "Library/Application Support/Claude/claude_desktop_config.json", "Claude Desktop")
+    elif os.name == "nt":
+        appdata = Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming"))
+        _merge_mcp_config(appdata / "Claude/claude_desktop_config.json", "Claude Desktop")
+    else:
+        _merge_mcp_config(Path.home() / ".config/Claude/claude_desktop_config.json", "Claude Desktop")
+
+    # 2. Cursor
+    cursor_paths = [
+        Path.home() / ".cursor" / "mcp.json",
+    ]
+    if sys.platform.startswith("darwin"):
+        cursor_paths.append(Path.home() / "Library/Application Support/Cursor/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json")
+    elif os.name == "nt":
+        appdata = Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming"))
+        cursor_paths.append(appdata / "Cursor/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json")
+    for cp in cursor_paths:
+        _merge_mcp_config(cp, "Cursor")
+
+    # 3. Windsurf
+    windsurf_path = Path.home() / ".codeium" / "windsurf" / "mcp_config.json"
+    _merge_mcp_config(windsurf_path, "Windsurf")
+
+    # 4. VS Code (Cline / Roo Code)
+    vscode_paths = []
+    if sys.platform.startswith("darwin"):
+        vscode_paths.extend([
+            Path.home() / "Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json",
+            Path.home() / "Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
+        ])
+    elif os.name == "nt":
+        appdata = Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming"))
+        vscode_paths.append(appdata / "Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json")
+    for vp in vscode_paths:
+        _merge_mcp_config(vp, "VS Code")
+
+    # 5. Claude Code CLI
+    if shutil.which("claude"):
+        claude_entry_file = HOME / "claude-server-entry.json"
+        if claude_entry_file.is_file():
+            try:
+                res = subprocess.run(
+                    ["claude", "mcp", "add-json", "resolve-ai-bridge", claude_entry_file.read_text(encoding="utf-8"), "--scope", "user"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if res.returncode == 0 and "Claude Code CLI" not in configured:
+                    configured.append("Claude Code CLI")
+            except Exception:
+                pass
+
+    # 6. Codex CLI
+    if shutil.which("codex"):
+        try:
+            res = subprocess.run(
+                ["codex", "mcp", "add", "resolve-ai-bridge", "--", entry["command"], entry["args"][0]],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if res.returncode == 0 and "Codex CLI" not in configured:
+                configured.append("Codex CLI")
+        except Exception:
+            pass
+
+    return configured
 
 
 def probe_direct_attach():
@@ -346,19 +495,40 @@ def main():
               % (len(tidied), HOME / "removed-scripts-backup"))
     skill_paths = install_skills()
     print("[5/5] Installed the Resolve editing skill in standard skill locations.")
+    launcher_paths = install_global_launcher()
+    if launcher_paths:
+        print("      Installed global CLI launcher at %s" % launcher_paths[0])
+    auto_configured = auto_configure_clients(_entry)
+    if auto_configured:
+        print("      Auto-configured clients: %s" % ", ".join(auto_configured))
 
     direct = probe_direct_attach()
 
     print("\n" + "=" * 72)
     print("INSTALL COMPLETE")
 
-    print("\nSTEP 1  Connect your AI client. Nothing here needs editing.")
-    print("        Claude Code, in a normal terminal:")
-    print("          %s" % claude_line)
-    print("        Codex, in a normal terminal:")
-    print("          %s" % codex_line)
-    print("        Antigravity or Cursor, paste this file's contents into the MCP raw config:")
-    print("          %s" % (HOME / "mcp-config.json"))
+    print("\nSTEP 1  Connect your AI client (Zero manual configuration needed).")
+    if auto_configured:
+        print("        [AUTO-CONFIGURED] Successfully registered with:")
+        for client_name in auto_configured:
+            print("          ✓ %s" % client_name)
+        print("        Your tools are connected in those apps right away!")
+
+    if launcher_paths:
+        print("\n        GLOBAL LAUNCHER INSTALLED: %s" % launcher_paths[0])
+        print("        In any client, you can use zero-path command:")
+        print('          {"mcpServers": {"resolve-ai-bridge": {"command": "resolve-ai-bridge"}}}')
+
+    print("\n        PORTABLE ZERO-PATH SNIPPET (No username or home folder editing needed):")
+    print("        macOS / Linux:")
+    print('          {"mcpServers": {"resolve-ai-bridge": {"command": "sh", "args": ["-c", "exec \\"$HOME/.resolve-ai-bridge/.venv/bin/python\\" \\"$HOME/.resolve-ai-bridge/bridge/server.py\\""]}}}')
+
+    print("\n        Provider one-liners:")
+    print("        Claude Code: %s" % claude_line)
+    print("        Codex:       %s" % codex_line)
+    print("        Explicit Absolute Config (Saved at %s):" % (HOME / "mcp-config.json"))
+    for line in json.dumps(_config, indent=2).splitlines():
+        print("          " + line)
 
     print("\nSTEP 2  Start Resolve.")
     if direct.get("ok"):
@@ -387,11 +557,11 @@ def main():
     print("\nVERIFY  python3 tools/doctor.py")
     print("        Then ask your AI: \"Call resolve_status and tell me what is open.\"")
 
-    print("\nToken: %s" % token)
-    print("Keep this token private. Use --rotate-token if it is ever exposed.")
+    print("\nLocal Token: %s (auto-managed at %s)" % (token, TOKEN_FILE))
+    print("Authentication between bridge and Resolve is 100% automatic locally.")
     if not shutil.which("node"):
         print("\nHEAVILY RECOMMENDED: install the current Node.js LTS release for Remotion.")
-        print("Then follow the Remotion section in 00_START_HERE.html.")
+        print("Then follow the Remotion section in docs/REMOTION.md.")
     if skill_paths:
         print("\nResolve editing skill copies:")
         for path in skill_paths:

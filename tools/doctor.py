@@ -232,7 +232,7 @@ def main():
 
     print("\nSummary: %d failure(s), %d warning(s)" % (failures, warnings))
     if failures:
-        print("Open 00_START_HERE.html and follow the Help section in order.")
+        print("Open README.md and follow the Help section in order.")
     elif not (direct.get("ok") or console_online):
         print("Local files are healthy. Open DaVinci Resolve with a project, then run this again.")
     else:

@@ -36,8 +36,7 @@ npm run dev`;
 const configExample = `{
   "mcpServers": {
     "resolve-ai-bridge": {
-      "command": "/ABSOLUTE/PATH/TO/.resolve-ai-bridge/.venv/bin/python",
-      "args": ["/ABSOLUTE/PATH/TO/.resolve-ai-bridge/bridge/server.py"]
+      "command": "resolve-ai-bridge"
     }
   }
 }`;
@@ -48,7 +47,7 @@ const providers: Record<Provider, { title: string; steps: string[] }> = {
     steps: [
       "Open the Agent panel, select the three-dot menu, then MCP Servers.",
       "Choose Manage MCP Servers, then View raw config. This opens the config file used by your installed version.",
-      "Merge the resolve-ai-bridge entry from ~/.resolve-ai-bridge/mcp-config.json into the existing mcpServers object. Keep any servers already there.",
+      "Merge the clean resolve-ai-bridge entry from ~/.resolve-ai-bridge/mcp-config.json into the existing mcpServers object. No env tokens needed.",
       "Save the file, refresh the MCP list, and restart Antigravity if the tools do not appear immediately.",
     ],
   },
@@ -56,7 +55,7 @@ const providers: Record<Provider, { title: string; steps: string[] }> = {
     title: "Add it to Claude Code",
     steps: [
       "Copy the Claude Code command printed by the installer. It is also saved at ~/.resolve-ai-bridge/claude-command.txt.",
-      "Run that complete command in a normal terminal. It safely reads the generated JSON with the correct token and absolute paths.",
+      "Run that complete command in a normal terminal. It safely reads the generated JSON with the absolute paths.",
       "Restart Claude Code, run /mcp, and confirm resolve-ai-bridge is connected.",
       "If add-json is unavailable in your version, open its MCP configuration and merge the full mcpServers block instead.",
     ],
@@ -65,7 +64,7 @@ const providers: Record<Provider, { title: string; steps: string[] }> = {
     title: "Add it to Codex",
     steps: [
       "Copy the Codex command printed by the installer. It is also saved at ~/.resolve-ai-bridge/codex-command.txt.",
-      "Run that complete codex mcp add command in a normal terminal. It already contains the token and absolute runtime paths.",
+      "Run that complete codex mcp add command in a normal terminal. It contains the absolute runtime paths without requiring manual tokens.",
       "Run codex mcp list, then restart Codex. The app also supports Settings, MCP servers, Add server, STDIO.",
       "Inside Codex run /mcp, then ask it to call resolve_status before making an edit.",
     ],
@@ -103,8 +102,8 @@ const faq = [
     a: "It was appended as ordinary footage. Use add_image with a duration in seconds instead, then read actual_duration_frames in the reply to see the length Resolve really created.",
   },
   {
-    q: "Why is the token required?",
-    a: "It is a real local shared secret used by the Console queue. The MCP server includes it in every request, and the worker rejects requests with the wrong token. It is not an internet account or a paid key. Rotate it with the installer if it is exposed.",
+    q: "Do I need to copy or configure an authentication token?",
+    a: "No. Authentication between the MCP server and DaVinci Resolve is completely automatic via a secure shared local file (~/.resolve-ai-bridge/token.txt). No token needs to be typed or configured in your AI client.",
   },
 ];
 

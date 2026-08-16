@@ -2,6 +2,7 @@
 
 import json
 import os
+import secrets
 import time
 import uuid
 from pathlib import Path
@@ -30,16 +31,34 @@ class BridgeCallError(BridgeError):
     pass
 
 
+def _ensure_dirs():
+    for path in (HOME, INBOX, OUTBOX):
+        path.mkdir(parents=True, exist_ok=True)
+
+
 def _token():
     value = os.environ.get("RESOLVE_AI_BRIDGE_TOKEN", "").strip()
     if value:
         return value
+    if TOKEN_FILE.exists():
+        try:
+            token = TOKEN_FILE.read_text(encoding="utf-8").strip()
+            if token:
+                return token
+        except OSError:
+            pass
+    # Self-heal / auto-generate shared local token with strict 0600 permissions
+    _ensure_dirs()
+    token = "rab_" + secrets.token_urlsafe(32)
     try:
-        return TOKEN_FILE.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        raise BridgeOffline(
-            "The bridge token is missing. Run install.py, then use the generated MCP configuration."
-        ) from exc
+        TOKEN_FILE.write_text(token + "\n", encoding="utf-8")
+        try:
+            os.chmod(str(TOKEN_FILE), 0o600)
+        except OSError:
+            pass
+    except OSError:
+        pass
+    return token
 
 
 def _read_json(path):

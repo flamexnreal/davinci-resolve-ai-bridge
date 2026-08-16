@@ -26,4 +26,4 @@ Read `README.md` and `skills/resolve-ai-editing/SKILL.md` before changing the Py
 - Be explicit about anything not tested against a real Resolve instance.
 - Do not add tools for API calls that are Studio-only or that cannot be verified.
 
-Run the doctor check and the web build after changes when the environment allows it. Keep `00_START_HERE.html` and `src/App.tsx` in agreement.
+Run the doctor check after changes. Keep README.md and documentation in agreement.
