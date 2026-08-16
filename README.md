@@ -2,6 +2,8 @@
 
 Resolve AI Bridge is an open-source local MCP bridge that lets AI coding assistants (Antigravity, Claude, Cursor, Windsurf, Codex, VS Code) inspect and edit projects open in DaVinci Resolve (Free and Studio).
 
+**Prerequisite:** Requires **Python 3.10 or newer** (download from [python.org/downloads](https://www.python.org/downloads/) if not already on your computer).
+
 ---
 
 ## Quick Setup

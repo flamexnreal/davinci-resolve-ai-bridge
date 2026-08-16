@@ -24,6 +24,7 @@ if command -v python3 >/dev/null 2>&1; then
 elif command -v python >/dev/null 2>&1; then
     python install.py "$@"
 else
-    echo "Error: Python 3.10+ is required but not found in PATH." >&2
+    echo "Error: Python 3.10 or newer is required to run DaVinci Resolve AI Bridge." >&2
+    echo "Please download and install Python from: https://www.python.org/downloads/" >&2
     exit 1
 fi

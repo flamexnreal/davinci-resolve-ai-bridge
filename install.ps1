@@ -18,7 +18,9 @@ try {
     } elseif (Get-Command python -ErrorAction SilentlyContinue) {
         & python install.py $args
     } else {
-        Write-Error "Python 3.10+ is required but not found in PATH."
+        Write-Host "Error: Python 3.10 or newer is required to run DaVinci Resolve AI Bridge." -ForegroundColor Red
+        Write-Host "Please download and install Python from: https://www.python.org/downloads/" -ForegroundColor Yellow
+        exit 1
     }
 } finally {
     Set-Location $HOME
