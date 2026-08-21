@@ -98,6 +98,32 @@ def timeline_overview(max_items: int = 500) -> str:
 
 
 @mcp.tool()
+def timeline_frame(
+    timecode: Optional[str] = None,
+    frame: Optional[int] = None,
+    max_width: int = 1280,
+    format: str = "jpg",
+    mode: str = "auto",
+) -> str:
+    """Capture and inspect a visual frame snapshot of the timeline at the playhead or specified timecode.
+
+    Supports intelligent multi-tier capture:
+    - Tier 1: Native Direct Frame Dump (ExportCurrentFrameAsStill) capturing grades, Fusion effects, and titles.
+    - Tier 2: High-speed hardware source extraction fallback (sub-50ms) for 100% Free Resolve compatibility.
+    """
+    return _result(
+        "timeline_frame",
+        {
+            "timecode": timecode,
+            "frame": frame,
+            "max_width": max_width,
+            "format": format,
+            "mode": mode,
+        },
+    )
+
+
+@mcp.tool()
 def list_media(limit: int = 1000) -> str:
     """List media pool items recursively with unique ids, bin paths, file paths, frame counts, and durations."""
     return _result("list_media", {"limit": limit})

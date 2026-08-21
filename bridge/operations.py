@@ -1312,6 +1312,161 @@ class ResolveOperations:
             "preset": preset or None,
         }
 
+    def _op_timeline_frame(self, params):
+        import base64
+        import shutil
+        import subprocess
+        import tempfile
+        import time
+
+        timeline = self._timeline()
+        project = self._project()
+        fps = self._project_rate()
+
+        # 1. Handle optional seek if timecode or frame was provided
+        requested_tc = params.get("timecode")
+        requested_frame = params.get("frame")
+        if requested_tc:
+            timeline.SetCurrentTimecode(str(requested_tc).strip())
+        elif requested_frame is not None:
+            try:
+                f_int = int(requested_frame)
+                start_tc = call(timeline, "GetStartTimecode", "01:00:00:00")
+                start_f = self._tc_frames(start_tc, fps)
+                target_total_f = start_f + f_int
+                r_fps = max(1, int(round(fps)))
+                hrs = target_total_f // (3600 * r_fps)
+                rem = target_total_f % (3600 * r_fps)
+                mins = rem // (60 * r_fps)
+                rem = rem % (60 * r_fps)
+                secs = rem // r_fps
+                frames = rem % r_fps
+                tc_str = "%02d:%02d:%02d:%02d" % (hrs, mins, secs, frames)
+                timeline.SetCurrentTimecode(tc_str)
+            except Exception:
+                pass
+
+        current_tc = call(timeline, "GetCurrentTimecode", "00:00:00:00")
+        current_frame = self._current_marker_frame(timeline)
+        max_width = int(params.get("max_width") or 1280)
+        mode = str(params.get("mode", "auto")).lower()
+        fmt = str(params.get("format", "jpg")).lower().lstrip(".")
+        if fmt not in ("jpg", "jpeg", "png"):
+            fmt = "jpg"
+
+        capture_dir = Path(tempfile.gettempdir()) / "resolve-frame-captures"
+        capture_dir.mkdir(parents=True, exist_ok=True)
+        temp_img = capture_dir / ("frame_%d_%s.%s" % (int(time.time() * 1000), current_tc.replace(":", "_"), fmt))
+
+        extracted = False
+        method_used = "unknown"
+        clip_name = None
+
+        # Attempt Tier 1: Native Direct Export (if mode is auto or composite)
+        if mode in ("auto", "composite"):
+            try:
+                ok = call(project, "ExportCurrentFrameAsStill", False, str(temp_img))
+                if ok and temp_img.exists() and temp_img.stat().st_size > 0:
+                    extracted = True
+                    method_used = "export_current_frame_as_still"
+            except Exception:
+                pass
+
+        # Attempt Tier 2: Source Media Hardware Offset (if Tier 1 didn't succeed or mode is source)
+        if not extracted and mode in ("auto", "source"):
+            video_tracks = int(call(timeline, "GetTrackCount", 0, "video") or 0)
+            target_item = None
+            for t_idx in range(video_tracks, 0, -1):
+                if not call(timeline, "GetIsTrackEnabled", True, "video", t_idx):
+                    continue
+                track_items = call(timeline, "GetItemListInTrack", [], "video", t_idx) or []
+                for item in track_items:
+                    start_f = call(item, "GetStart", None)
+                    end_f = call(item, "GetEnd", None)
+                    if start_f is not None and end_f is not None and start_f <= current_frame < end_f:
+                        target_item = item
+                        break
+                if target_item is not None:
+                    break
+
+            if target_item is not None:
+                clip_name = call(target_item, "GetName", "")
+                media_item = call(target_item, "GetMediaPoolItem", None)
+                file_path = call(media_item, "GetClipProperty", "", "File Path") if media_item else ""
+                if file_path and Path(file_path).exists():
+                    left_offset = call(target_item, "GetLeftOffset", 0) or 0
+                    start_f = call(target_item, "GetStart", 0) or 0
+                    source_frame = (current_frame - start_f) + left_offset
+                    source_sec = max(0.0, float(source_frame) / max(1.0, fps))
+
+                    try:
+                        import cv2
+                        cap = cv2.VideoCapture(str(file_path))
+                        if cap.isOpened():
+                            cap.set(cv2.CAP_PROP_POS_MSEC, source_sec * 1000.0)
+                            ret, frame_img = cap.read()
+                            cap.release()
+                            if ret and frame_img is not None:
+                                cv2.imwrite(str(temp_img), frame_img, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                                if temp_img.exists() and temp_img.stat().st_size > 0:
+                                    extracted = True
+                                    method_used = "source_math_cv2"
+                    except Exception:
+                        pass
+
+                    if not extracted:
+                        ffmpeg_bin = shutil.which("ffmpeg")
+                        if ffmpeg_bin:
+                            cmd = [
+                                ffmpeg_bin, "-y", "-ss", f"{source_sec:.3f}",
+                                "-i", str(file_path), "-vframes", "1",
+                                "-q:v", "2", str(temp_img)
+                            ]
+                            res = subprocess.run(cmd, capture_output=True)
+                            if res.returncode == 0 and temp_img.exists() and temp_img.stat().st_size > 0:
+                                extracted = True
+                                method_used = "source_math_ffmpeg"
+
+        if not extracted:
+            raise OperationError(
+                "Could not capture timeline frame at %s. Ensure Resolve is open with active media."
+                % current_tc
+            )
+
+        width, height = 1920, 1080
+        if max_width > 0:
+            try:
+                import cv2
+                img = cv2.imread(str(temp_img))
+                if img is not None:
+                    orig_h, orig_w = img.shape[:2]
+                    if orig_w > max_width:
+                        ratio = max_width / float(orig_w)
+                        new_h = int(orig_h * ratio)
+                        resized = cv2.resize(img, (max_width, new_h), interpolation=cv2.INTER_AREA)
+                        cv2.imwrite(str(temp_img), resized, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                        width, height = max_width, new_h
+                    else:
+                        width, height = orig_w, orig_h
+            except Exception:
+                pass
+
+        with open(temp_img, "rb") as f:
+            raw_bytes = f.read()
+        b64_data = base64.b64encode(raw_bytes).decode("ascii")
+
+        return {
+            "timecode": current_tc,
+            "frame": current_frame,
+            "clip_name": clip_name,
+            "method": method_used,
+            "width": width,
+            "height": height,
+            "format": fmt,
+            "image_base64": b64_data,
+            "file_path": str(temp_img),
+        }
+
     # ------------------------------------------------------------- dispatch
 
     def handlers(self):
@@ -1344,6 +1499,7 @@ class ResolveOperations:
             "save_project": self._op_save_project,
             "list_render_presets": self._op_list_render_presets,
             "render_current_timeline": self._op_render_current_timeline,
+            "timeline_frame": self._op_timeline_frame,
         }
 
     def dispatch(self, operation, params=None):
