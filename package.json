@@ -4,8 +4,8 @@
   "description": "A local MCP bridge that lets AI coding assistants (Antigravity, Claude, Cursor, Codex) view and edit the project open in DaVinci Resolve",
   "type": "module",
   "bin": {
-    "davinci-resolve-ai-bridge-mcp": "./bin/cli.js",
-    "resolve-ai-bridge": "./bin/cli.js"
+    "davinci-resolve-ai-bridge-mcp": "bin/cli.js",
+    "resolve-ai-bridge": "bin/cli.js"
   },
   "main": "dist/index.html",
   "files": [
@@ -40,7 +40,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/flamexnreal/davinci-resolve-ai-bridge-mcp.git"
+    "url": "git+https://github.com/flamexnreal/davinci-resolve-ai-bridge-mcp.git"
   },
   "bugs": {
     "url": "https://github.com/flamexnreal/davinci-resolve-ai-bridge-mcp/issues"
