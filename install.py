@@ -14,7 +14,7 @@ import venv
 from pathlib import Path
 
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 ROOT = Path(__file__).resolve().parent
 HOME = Path(os.environ.get("RESOLVE_AI_BRIDGE_HOME", Path.home() / ".resolve-ai-bridge")).expanduser()
 TOKEN_FILE = HOME / "token.txt"

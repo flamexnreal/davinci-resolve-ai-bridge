@@ -4,13 +4,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Resolve AI Bridge is an open-source local Model Context Protocol (MCP) bridge that lets AI coding assistants (**Claude**, **Claude Code**, **Antigravity**, **Cursor**, **Windsurf**, **Codex**, **VS Code**) inspect and edit projects open in **DaVinci Resolve** (Free and Studio).
+Resolve AI Bridge is an open-source local Model Context Protocol (MCP) bridge that lets AI coding assistants (Claude, Claude Code, Antigravity, Cursor, Windsurf, Codex, VS Code) inspect, analyze, and edit projects open in DaVinci Resolve (Free and Studio).
 
-**Prerequisite:** Requires **Python 3.10 or newer** (download from [python.org/downloads](https://www.python.org/downloads/) if not already on your computer).
+**Prerequisite:** Requires Python 3.10 or newer (download from [python.org/downloads](https://www.python.org/downloads/) if not already on your computer).
 
 ---
 
-## ⚡ Quick Setup
+## Quick Setup
 
 ### Option A: Run directly with npx (Recommended for Node / npm users)
 
@@ -36,15 +36,15 @@ The installer sets up the local isolated runtime environment, installs dependenc
 
 ---
 
-## 🎬 How It Works
+## How It Works
 
 1. **Open DaVinci Resolve** and open any project or timeline.
 2. **Direct attach (default)**: The bridge connects automatically through Resolve's native scripting interface.
-3. **Fallback launcher**: If your build requires the internal console, choose **Workspace > Scripts > Resolve AI Bridge > Start AI Bridge** in Resolve.
+3. **Fallback launcher**: If your build requires the internal console, choose **Workspace > Scripts > Resolve AI Bridge > Start AI Bridge** in Resolve, or paste the activation command into the Py3 Console.
 
 ---
 
-## 🤖 MCP Client Configuration
+## MCP Client Configuration
 
 If you are adding the MCP server manually to your AI client configuration:
 
@@ -84,7 +84,7 @@ claude mcp add resolve-ai-bridge -- resolve-ai-bridge
 
 ---
 
-## 🛠️ Available MCP Tools
+## Available MCP Tools
 
 | Tool | Description |
 | :--- | :--- |
@@ -106,7 +106,7 @@ claude mcp add resolve-ai-bridge -- resolve-ai-bridge
 
 ---
 
-## 🎨 Motion Graphics with Remotion
+## Motion Graphics with Remotion
 
 For programmatic motion graphics, lower thirds, animated titles, and video overlays, using [Remotion](https://www.remotion.dev/) (React-based video) alongside this bridge is recommended. AI coding agents can generate React components with precise timing, animations, typography, and layout, render them to video files, and place them directly onto your DaVinci Resolve timeline using `append_media` or `add_image`.
 
@@ -124,13 +124,13 @@ See [`docs/REMOTION.md`](./docs/REMOTION.md) for full workflows and rendering in
 
 ---
 
-## ⚖️ Free vs Studio Version
+## Free vs Studio Version
 
 Blackmagic Design's scripting APIs provide a common superset for both the Free and Studio versions of DaVinci Resolve. No feature in this bridge requires Studio-only tools. If external scripting is disabled in Resolve Preferences, the bridge falls back to the internal Console worker and all tools behave identically.
 
 ---
 
-## 🔍 Verification & Troubleshooting
+## Verification and Troubleshooting
 
 Run the diagnostic tool before editing files:
 
@@ -144,6 +144,6 @@ python3 tools/doctor.py
 
 ---
 
-## 📄 License
+## License
 
 MIT. See [`LICENSE`](./LICENSE).

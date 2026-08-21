@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 
-AGENT_VERSION = "1.4.0"
+AGENT_VERSION = "1.5.0"
 PROTOCOL_VERSION = 2
 
 IMAGE_SUFFIXES = {
