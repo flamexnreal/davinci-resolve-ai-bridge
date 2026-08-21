@@ -1467,6 +1467,185 @@ class ResolveOperations:
             "file_path": str(temp_img),
         }
 
+    def _op_timeline_audio(self, params):
+        import math
+        import shutil
+        import struct
+        import subprocess
+        import tempfile
+        import time
+        import wave
+
+        timeline = self._timeline()
+        fps = self._project_rate()
+        action = str(params.get("action", "analyze")).lower()
+        threshold_db = float(params.get("silence_threshold_db", -40.0))
+        min_silence_duration = float(params.get("min_silence_duration", 0.3))
+        track_index = int(params.get("track_index", 1))
+
+        # Find target audio or video clip on timeline
+        target_item = None
+        target_track_type = "audio"
+
+        # Check audio tracks first
+        audio_tracks = int(call(timeline, "GetTrackCount", 0, "audio") or 0)
+        if track_index <= audio_tracks and track_index > 0:
+            items = call(timeline, "GetItemListInTrack", [], "audio", track_index) or []
+            if items:
+                target_item = items[0]
+
+        # If no audio track item found, check video track for embedded audio
+        if target_item is None:
+            video_tracks = int(call(timeline, "GetTrackCount", 0, "video") or 0)
+            for v_idx in range(1, video_tracks + 1):
+                items = call(timeline, "GetItemListInTrack", [], "video", v_idx) or []
+                if items:
+                    target_item = items[0]
+                    target_track_type = "video"
+                    break
+
+        if target_item is None:
+            raise OperationError("No audio or video clips found on the active timeline.")
+
+        clip_name = call(target_item, "GetName", "")
+        media_item = call(target_item, "GetMediaPoolItem", None)
+        file_path = call(media_item, "GetClipProperty", "", "File Path") if media_item else ""
+
+        if not file_path or not Path(file_path).exists():
+            raise OperationError("Media file for clip '%s' is offline or missing on disk." % clip_name)
+
+        # Extract to temporary WAV file using afconvert or ffmpeg
+        audio_dir = Path(tempfile.gettempdir()) / "resolve-audio-analysis"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        temp_wav = audio_dir / ("audio_%d.wav" % int(time.time() * 1000))
+
+        extracted = False
+        afconvert_bin = shutil.which("afconvert")
+        if afconvert_bin:
+            cmd = [afconvert_bin, "-f", "WAVE", "-d", "LEI16@48000", "-c", "2", str(file_path), str(temp_wav)]
+            res = subprocess.run(cmd, capture_output=True)
+            if res.returncode == 0 and temp_wav.exists() and temp_wav.stat().st_size > 44:
+                extracted = True
+
+        if not extracted:
+            ffmpeg_bin = shutil.which("ffmpeg")
+            if ffmpeg_bin:
+                cmd = [ffmpeg_bin, "-y", "-i", str(file_path), "-vn", "-ac", "2", "-ar", "48000", "-f", "wav", str(temp_wav)]
+                res = subprocess.run(cmd, capture_output=True)
+                if res.returncode == 0 and temp_wav.exists() and temp_wav.stat().st_size > 44:
+                    extracted = True
+
+        if not extracted:
+            raise OperationError("Could not decode audio from media file '%s'." % file_path)
+
+        # Read samples
+        with wave.open(str(temp_wav), "rb") as wf:
+            channels = wf.getnchannels()
+            sample_rate = wf.getframerate()
+            total_frames = wf.getnframes()
+            raw_bytes = wf.readframes(total_frames)
+
+        num_samples = len(raw_bytes) // (2 * channels)
+        fmt = "<%dh" % (num_samples * channels)
+        raw_ints = struct.unpack(fmt, raw_bytes)
+
+        if channels == 1:
+            samples = [s / 32768.0 for s in raw_ints]
+        else:
+            samples = [((raw_ints[i * 2] + raw_ints[i * 2 + 1]) / 2.0) / 32768.0 for i in range(num_samples)]
+
+        duration = total_frames / float(sample_rate)
+
+        # 1. Action: analyze
+        if action == "analyze":
+            peak_val = max(abs(s) for s in samples) if samples else 0.0
+            sum_sq = sum(s * s for s in samples) if samples else 0.0
+            rms_val = math.sqrt(sum_sq / len(samples)) if samples else 0.0
+            peak_db = 20.0 * math.log10(max(1e-6, peak_val))
+            rms_db = 20.0 * math.log10(max(1e-6, rms_val))
+            return {
+                "action": "analyze",
+                "clip_name": clip_name,
+                "track_type": target_track_type,
+                "duration_sec": round(duration, 3),
+                "sample_rate": sample_rate,
+                "channels": channels,
+                "peak_dbfs": round(peak_db, 2),
+                "rms_dbfs": round(rms_db, 2),
+                "is_clipping": bool(peak_db >= -0.05),
+                "health": "healthy" if peak_db < -0.5 and rms_db > -35.0 else "warning_loud" if peak_db >= -0.5 else "warning_quiet",
+                "wav_path": str(temp_wav),
+            }
+
+        # 2. Action: silence_cuts
+        elif action == "silence_cuts":
+            window_size = int(sample_rate * 0.05)
+            num_windows = len(samples) // window_size
+            silent_windows = []
+            for i in range(num_windows):
+                chunk = samples[i * window_size : (i + 1) * window_size]
+                chunk_rms = math.sqrt(sum(s * s for s in chunk) / len(chunk))
+                chunk_db = 20.0 * math.log10(max(1e-6, chunk_rms))
+                silent_windows.append(chunk_db <= threshold_db)
+
+            cuts = []
+            in_silence = False
+            interval_start = 0.0
+            for i, is_silent in enumerate(silent_windows):
+                curr_t = i * 0.05
+                if is_silent and not in_silence:
+                    in_silence = True
+                    interval_start = curr_t
+                elif not is_silent and in_silence:
+                    in_silence = False
+                    d = curr_t - interval_start
+                    if d >= min_silence_duration:
+                        # Convert to timecode
+                        s_f = int(interval_start * fps)
+                        e_f = int(curr_t * fps)
+                        cuts.append({
+                            "start_sec": round(interval_start, 3),
+                            "end_sec": round(curr_t, 3),
+                            "duration_sec": round(d, 3),
+                            "start_frame": s_f,
+                            "end_frame": e_f,
+                        })
+            return {
+                "action": "silence_cuts",
+                "clip_name": clip_name,
+                "threshold_db": threshold_db,
+                "silence_intervals_count": len(cuts),
+                "cuts": cuts,
+            }
+
+        # 3. Action: energy_envelope
+        elif action == "energy_envelope":
+            window_size = max(1, int(sample_rate * 0.05))
+            num_windows = len(samples) // window_size
+            envelope = []
+            for i in range(min(num_windows, 200)):
+                chunk = samples[i * window_size : (i + 1) * window_size]
+                chunk_rms = math.sqrt(sum(s * s for s in chunk) / len(chunk))
+                chunk_db = 20.0 * math.log10(max(1e-6, chunk_rms))
+                envelope.append({"time_sec": round(i * 0.05, 2), "rms_dbfs": round(chunk_db, 1)})
+            return {
+                "action": "energy_envelope",
+                "clip_name": clip_name,
+                "samples_count": len(envelope),
+                "envelope": envelope,
+            }
+
+        # 4. Action: export_slice
+        elif action == "export_slice":
+            return {
+                "action": "export_slice",
+                "clip_name": clip_name,
+                "wav_path": str(temp_wav),
+                "duration_sec": round(duration, 3),
+            }
+
+        raise OperationError("Unknown audio action '%s'. Valid actions: analyze, silence_cuts, energy_envelope, export_slice" % action)
+
     # ------------------------------------------------------------- dispatch
 
     def handlers(self):
@@ -1500,6 +1679,7 @@ class ResolveOperations:
             "list_render_presets": self._op_list_render_presets,
             "render_current_timeline": self._op_render_current_timeline,
             "timeline_frame": self._op_timeline_frame,
+            "timeline_audio": self._op_timeline_audio,
         }
 
     def dispatch(self, operation, params=None):

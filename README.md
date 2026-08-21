@@ -91,6 +91,7 @@ claude mcp add resolve-ai-bridge -- resolve-ai-bridge
 | **`resolve_status`** | Check bridge connection, Resolve version, active project, and timeline. |
 | **`timeline_overview`** | Inspect tracks, clips, stable item IDs (`V1.1`, `V2.1`), timecode, and markers. |
 | **`timeline_frame`** | Capture a visual frame snapshot at the playhead or specified timecode. |
+| **`timeline_audio`** | Analyze timeline audio for Peak/RMS loudness, clipping, silence cuts, and beat sync. |
 | **`project_info`** | Get project frame rate, resolution, and timeline counts. |
 | **`list_timelines`** / **`open_timeline`** / **`create_timeline`** | Create, switch, and list timelines. |
 | **`list_media`** / **`import_media`** / **`append_media`** | Search, import, and place media pool assets. |

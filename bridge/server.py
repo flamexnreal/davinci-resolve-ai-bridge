@@ -124,6 +124,32 @@ def timeline_frame(
 
 
 @mcp.tool()
+def timeline_audio(
+    action: str = "analyze",
+    track_index: int = 1,
+    silence_threshold_db: float = -40.0,
+    min_silence_duration: float = 0.3,
+) -> str:
+    """Analyze audio on the timeline for loudness health, clipping, silence intervals, and beat sync.
+
+    Actions:
+    - 'analyze': Returns overall duration, sample rate, channels, peak dBFS, RMS dBFS, and clipping status.
+    - 'silence_cuts': Detects silence/dead-air intervals and returns exact start/end frames for jump-cuts.
+    - 'energy_envelope': Computes a 50ms time-series RMS loudness profile for animation & beat synchronization.
+    - 'export_slice': Extracts a clean WAV audio slice to disk for transcription or alignment.
+    """
+    return _result(
+        "timeline_audio",
+        {
+            "action": action,
+            "track_index": track_index,
+            "silence_threshold_db": silence_threshold_db,
+            "min_silence_duration": min_silence_duration,
+        },
+    )
+
+
+@mcp.tool()
 def list_media(limit: int = 1000) -> str:
     """List media pool items recursively with unique ids, bin paths, file paths, frame counts, and durations."""
     return _result("list_media", {"limit": limit})
